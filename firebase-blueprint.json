@@ -1,0 +1,161 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Per-user workspace state tracking sample data initialization and reset status.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated Firebase Auth UID matching the document path."
+        },
+        "seeded": {
+          "type": "boolean",
+          "description": "Whether initial starter categories and sample transactions were already seeded."
+        },
+        "hasSampleData": {
+          "type": "boolean",
+          "description": "Whether sample records are currently active in the workspace."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written via FieldValue.serverTimestamp() on creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written via FieldValue.serverTimestamp() on updates."
+        }
+      },
+      "required": ["userId", "seeded", "hasSampleData", "createdAt", "updatedAt"]
+    },
+    "BudgetCategory": {
+      "title": "BudgetCategory",
+      "description": "Customizable monthly budget category with icon key, accent color, and spending limit.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID."
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name of the category (1 to 40 characters)."
+        },
+        "iconKey": {
+          "type": "string",
+          "description": "Identifier mapping to a Material Rounded icon."
+        },
+        "colorHex": {
+          "type": "integer",
+          "description": "ARGB color value stored as a 64-bit integer."
+        },
+        "monthlyLimit": {
+          "type": "number",
+          "description": "Monthly spending limit in currency units (> 0 and <= 1000000)."
+        },
+        "sortOrder": {
+          "type": "integer",
+          "description": "Display ordering index for categories."
+        },
+        "sample": {
+          "type": "boolean",
+          "description": "True if created as starter sample data."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written via FieldValue.serverTimestamp() on creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written via FieldValue.serverTimestamp() on updates."
+        }
+      },
+      "required": [
+        "userId",
+        "name",
+        "iconKey",
+        "colorHex",
+        "monthlyLimit",
+        "sortOrder",
+        "sample",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Individual expense entry associated with a user category and calendar date.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID."
+        },
+        "categoryId": {
+          "type": "string",
+          "description": "Document ID of the associated BudgetCategory."
+        },
+        "amount": {
+          "type": "number",
+          "description": "Expense amount (> 0 and <= 1000000)."
+        },
+        "merchantOrNote": {
+          "type": "string",
+          "description": "Merchant label or optional expense note (1 to 120 characters)."
+        },
+        "dateEpochDay": {
+          "type": "integer",
+          "description": "Timezone-independent ISO local epoch day for grouping and trend analytics."
+        },
+        "sample": {
+          "type": "boolean",
+          "description": "True if created as starter sample data."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written via FieldValue.serverTimestamp() on creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written via FieldValue.serverTimestamp() on updates."
+        }
+      },
+      "required": [
+        "userId",
+        "categoryId",
+        "amount",
+        "merchantOrNote",
+        "dateEpochDay",
+        "sample",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "Owner-isolated user workspace metadata."
+    },
+    "/users/{userId}/categories/{categoryId}": {
+      "schema": {
+        "$ref": "#/entities/BudgetCategory"
+      },
+      "description": "Owner-isolated customizable budget categories and monthly limits."
+    },
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": {
+        "$ref": "#/entities/Transaction"
+      },
+      "description": "Owner-isolated personal expense transactions."
+    }
+  }
+}

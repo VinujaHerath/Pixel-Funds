@@ -1,0 +1,90 @@
+<resources>
+    <string name="app_name">Pixel Funds</string>
+
+    <!-- Optional Cloud Sign-In -->
+    <string name="auth_tagline">Back up your budgets and sync expenses seamlessly across devices with Google.</string>
+    <string name="auth_feature_pace">Live Pace</string>
+    <string name="auth_feature_insights">Scrub Charts</string>
+    <string name="auth_feature_sync">Cloud Sync</string>
+    <string name="auth_sign_in_google">Sign in with Google</string>
+    <string name="auth_signing_in">Signing in…</string>
+    <string name="auth_privacy_note">Optional — your budgets stay private to your Google account</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_remaining_to_spend">Remaining to spend</string>
+    <string name="dashboard_over_budget">Over monthly budget</string>
+    <string name="dashboard_monthly_pace">Monthly pace</string>
+    <string name="dashboard_on_pace">On pace</string>
+    <string name="dashboard_spending_fast">Spending fast</string>
+    <string name="dashboard_spent_label">Spent</string>
+    <string name="dashboard_safe_per_day">Safe / day</string>
+    <string name="dashboard_top_categories">Top categories</string>
+    <string name="dashboard_view_activity">Activity</string>
+    <string name="dashboard_sample_banner">Showing sample transactions so you can explore Pixel Funds.</string>
+    <string name="dashboard_clear_sample">Clear</string>
+    <string name="dashboard_cycle_dialog_got_it">Got it</string>
+    <string name="dashboard_cycle_synced_note">Synced to your device date — your monthly budget resets automatically on %1$s.</string>
+    <string name="dashboard_cycle_safe_note">Your Safe / day allowance divides your remaining budget across the %1$d remaining days (including today).</string>
+    <string name="cd_month_cycle_info">Days left in current monthly budget cycle</string>
+
+    <!-- Expense Entry -->
+    <string name="entry_note_placeholder">Add merchant or note</string>
+    <string name="entry_update_expense">Update expense</string>
+    <string name="entry_today">Today</string>
+    <string name="entry_yesterday">Yest.</string>
+    <string name="entry_set_date">Set</string>
+    <string name="entry_cancel">Cancel</string>
+
+    <!-- Budgets & Categories -->
+    <string name="budgets_title">Monthly limits</string>
+    <string name="budgets_subtitle">Tap any category to tune its target or edit details</string>
+    <string name="budgets_new_category">New category</string>
+    <string name="budgets_edit_category">Edit category</string>
+    <string name="budgets_delete_category">Delete category</string>
+    <string name="budgets_monthly_limit_label">Monthly limit</string>
+    <string name="category_sheet_create_title">Create category</string>
+    <string name="category_sheet_edit_title">Edit category</string>
+    <string name="category_name_placeholder">Category name (e.g. Travel)</string>
+    <string name="category_limit_placeholder">Monthly limit ($)</string>
+    <string name="category_pick_icon">Choose icon</string>
+    <string name="category_pick_color">Accent color</string>
+    <string name="category_save">Save category</string>
+
+    <!-- Activity -->
+    <string name="activity_title">Activity</string>
+    <string name="activity_search_placeholder">Search merchants or categories</string>
+    <string name="activity_empty_title">No expenses yet</string>
+    <string name="activity_empty_subtitle">Tap the + button below to log your first expense in seconds.</string>
+    <string name="activity_no_matches_title">No matching activity</string>
+    <string name="activity_no_matches_subtitle">Try clearing your search or category filter.</string>
+    <string name="activity_undo">Undo</string>
+
+    <!-- Insights -->
+    <string name="insights_title">Insights</string>
+    <string name="insights_drag_to_scrub">Drag chart to scrub</string>
+    <string name="insights_category_mix">Category mix</string>
+    <string name="insights_empty_mix">Log expenses to see your spending mix here.</string>
+
+    <!-- Account & Local Mode Sheet -->
+    <string name="account_title">Account &amp; Sync</string>
+    <string name="account_synced_badge">Cloud Sync</string>
+    <string name="account_local_badge">On-device</string>
+    <string name="account_local_title">Using Pixel Funds locally</string>
+    <string name="account_local_subtitle">Your data is saved on this device. Sign in with Google anytime to back up and sync across devices.</string>
+    <string name="account_clear_sample_title">Clear sample transactions</string>
+    <string name="account_clear_sample_subtitle">Removes demo entries while keeping your categories ready</string>
+    <string name="account_load_sample_title">Load sample transactions</string>
+    <string name="account_load_sample_subtitle">Populate demo entries to preview charts and pacing</string>
+    <string name="account_sign_out">Sign out &amp; use locally</string>
+    <string name="account_default_name">Pixel Funds Account</string>
+
+    <!-- Content Descriptions & Misc -->
+    <string name="cd_add_expense">Add expense</string>
+    <string name="cd_close">Close</string>
+    <string name="cd_account">Account and sync settings</string>
+    <string name="cd_delete_digit">Delete digit</string>
+    <string name="cd_edit_transaction">Edit transaction</string>
+    <string name="cd_delete_transaction">Delete transaction</string>
+    <string name="cd_clear_search">Clear search</string>
+    <string name="retry">Retry</string>
+</resources>

@@ -1,0 +1,185 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net: deny all unmatched paths by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable zero-trust primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidTimestamp(ts) {
+      return ts is timestamp && ts <= request.time;
+    }
+
+    // Entity validation blueprints
+    function isValidUserProfile(data, userId) {
+      return data.userId is string &&
+             data.userId == userId &&
+             data.userId == request.auth.uid &&
+             data.seeded is bool &&
+             data.hasSampleData is bool &&
+             data.createdAt is timestamp &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidCategory(data, userId) {
+      return data.userId is string &&
+             data.userId == userId &&
+             data.userId == request.auth.uid &&
+             data.name is string &&
+             data.name.size() >= 1 &&
+             data.name.size() <= 40 &&
+             data.iconKey is string &&
+             data.iconKey.size() >= 1 &&
+             data.iconKey.size() <= 32 &&
+             data.iconKey.matches('^[a-z0-9_]+$') &&
+             data.colorHex is int &&
+             data.colorHex >= 0 &&
+             data.monthlyLimit is number &&
+             data.monthlyLimit > 0 &&
+             data.monthlyLimit <= 1000000 &&
+             data.sortOrder is int &&
+             data.sortOrder >= 0 &&
+             data.sortOrder <= 10000 &&
+             data.sample is bool &&
+             data.createdAt is timestamp &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidTransaction(data, userId) {
+      return data.userId is string &&
+             data.userId == userId &&
+             data.userId == request.auth.uid &&
+             isValidId(data.categoryId) &&
+             data.amount is number &&
+             data.amount > 0 &&
+             data.amount <= 1000000 &&
+             data.merchantOrNote is string &&
+             data.merchantOrNote.size() >= 1 &&
+             data.merchantOrNote.size() <= 120 &&
+             data.dateEpochDay is int &&
+             data.dateEpochDay >= 0 &&
+             data.dateEpochDay <= 100000 &&
+             data.sample is bool &&
+             data.createdAt is timestamp &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    // User Workspace Metadata
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidUserProfile(incoming(), userId) &&
+                       incoming().keys().hasAll(['userId', 'seeded', 'hasSampleData', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'seeded', 'hasSampleData', 'createdAt', 'updatedAt']) &&
+                       isValidTimestamp(incoming().createdAt);
+
+      allow update: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidUserProfile(incoming(), userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         // Action: Toggle sample data flag or mark workspace seeded
+                         incoming().diff(existing()).affectedKeys().hasOnly(['seeded', 'hasSampleData', 'updatedAt'])
+                       );
+
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      // Budget Categories Subcollection
+      match /categories/{categoryId} {
+        allow get: if isOwner(userId) && isValidId(categoryId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(categoryId) &&
+                         isValidCategory(incoming(), userId) &&
+                         incoming().keys().hasAll([
+                           'userId', 'name', 'iconKey', 'colorHex',
+                           'monthlyLimit', 'sortOrder', 'sample', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'name', 'iconKey', 'colorHex',
+                           'monthlyLimit', 'sortOrder', 'sample', 'createdAt', 'updatedAt'
+                         ]) &&
+                         isValidTimestamp(incoming().createdAt);
+
+        allow update: if isOwner(userId) &&
+                         isValidId(categoryId) &&
+                         isValidCategory(incoming(), userId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         (
+                           // Action: Inline monthly limit adjustment
+                           incoming().diff(existing()).affectedKeys().hasOnly(['monthlyLimit', 'updatedAt']) ||
+                           // Action: Full category customization edit
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'name', 'iconKey', 'colorHex', 'monthlyLimit', 'sortOrder', 'sample', 'updatedAt'
+                           ])
+                         );
+
+        allow delete: if isOwner(userId) && isValidId(categoryId);
+      }
+
+      // Transactions Subcollection
+      match /transactions/{transactionId} {
+        allow get: if isOwner(userId) && isValidId(transactionId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(transactionId) &&
+                         isValidTransaction(incoming(), userId) &&
+                         incoming().keys().hasAll([
+                           'userId', 'categoryId', 'amount', 'merchantOrNote',
+                           'dateEpochDay', 'sample', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'categoryId', 'amount', 'merchantOrNote',
+                           'dateEpochDay', 'sample', 'createdAt', 'updatedAt'
+                         ]) &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         existsAfter(/databases/$(database)/documents/users/$(userId)/categories/$(incoming().categoryId));
+
+        allow update: if isOwner(userId) &&
+                         isValidId(transactionId) &&
+                         isValidTransaction(incoming(), userId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         existsAfter(/databases/$(database)/documents/users/$(userId)/categories/$(incoming().categoryId)) &&
+                         (
+                           // Action: Edit expense details
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'categoryId', 'amount', 'merchantOrNote', 'dateEpochDay', 'sample', 'updatedAt'
+                           ]) ||
+                           // Action: Reassign category when a category is deleted
+                           incoming().diff(existing()).affectedKeys().hasOnly(['categoryId', 'updatedAt'])
+                         );
+
+        allow delete: if isOwner(userId) && isValidId(transactionId);
+      }
+    }
+  }
+}

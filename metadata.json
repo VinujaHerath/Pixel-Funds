@@ -1,0 +1,6 @@
+{
+  "name": "Pixel Funds",
+  "description": "Material 3 Expressive personal budget tracker with on-device local mode, optional Google Sign-In cloud sync, spend pacing, custom categories, and interactive analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
