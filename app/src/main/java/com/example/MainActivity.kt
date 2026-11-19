@@ -37,21 +37,21 @@ import com.example.data.local.LocalBudgetRepository
 import com.example.ui.CadenceApp
 import com.example.ui.CadenceViewModel
 import com.example.ui.auth.attemptAutoSignIn
+import com.example.ui.auth.getFirebaseAuthOrNull
 import com.example.ui.theme.CadenceTheme
-import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
-import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flowOf
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        enablePixelSmoothDisplay()
+        runCatching { enablePixelSmoothDisplay() }
         val preferencesRepository = AppPreferencesRepository(applicationContext)
 
         setContent {
@@ -127,23 +127,27 @@ private fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
 @Composable
 private fun PixelFundsRootNavigation(
     preferencesRepository: AppPreferencesRepository,
-    auth: FirebaseAuth = Firebase.auth,
+    auth: FirebaseAuth? = null,
 ) {
     val context = LocalContext.current
+    val firebaseAuth = remember(context, auth) { auth ?: getFirebaseAuthOrNull(context) }
     val scope = rememberCoroutineScope()
     val credentialManager = remember(context) { CredentialManager.create(context) }
-    val currentUser by auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
+    val authFlow = remember(firebaseAuth) { firebaseAuth?.authStateFlow() ?: flowOf(null) }
+    val currentUser by authFlow.collectAsStateWithLifecycle(initialValue = firebaseAuth?.currentUser)
 
     // Non-blocking silent check for previously authorized Google accounts;
-    // users remain immediately in local on-device mode if not signed in.
-    LaunchedEffect(Unit) {
-        attemptAutoSignIn(
-            context = context,
-            credentialManager = credentialManager,
-            onAuthSuccess = {},
-            onUnauthenticated = {},
-            scope = scope,
-        )
+    // users remain immediately in local on-device mode if not signed in or if Firebase is unconfigured.
+    LaunchedEffect(firebaseAuth) {
+        if (firebaseAuth != null) {
+            attemptAutoSignIn(
+                context = context,
+                credentialManager = credentialManager,
+                onAuthSuccess = {},
+                onUnauthenticated = {},
+                scope = scope,
+            )
+        }
     }
 
     val user = currentUser
@@ -205,7 +209,7 @@ private fun PixelFundsRootNavigation(
 
             onDispose {
                 lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
-                context.unregisterReceiver(dateChangeReceiver)
+                runCatching { context.unregisterReceiver(dateChangeReceiver) }
             }
         }
 
