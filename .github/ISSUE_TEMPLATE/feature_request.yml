@@ -1,0 +1,22 @@
+name: Feature Request
+description: Suggest an improvement or new capability for Pixel Funds
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: Have an idea to make **Pixel Funds** even better? Share it below!
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or Motivation
+      description: What workflow or budgeting need would this help with?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Solution
+      description: Describe how you'd like this to look or behave.
+    validations:
+      required: true

@@ -1,0 +1,44 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in Pixel Funds
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to report a bug in **Pixel Funds**!
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: A clear, concise description of the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce the issue?
+      placeholder: |
+        1. Open the Dashboard tab
+        2. Tap '+' to add an expense
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device & Android Version
+      placeholder: e.g. Pixel 8, Android 16
+  - type: input
+    id: app_version
+    attributes:
+      label: App Version / Release Tag
+      placeholder: e.g. v1.0.0
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Storage Mode
+      options:
+        - On-device local mode (Room)
+        - Google Sign-In cloud sync (Firestore)
+        - Not sure
