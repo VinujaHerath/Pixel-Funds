@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        enablePixelSmoothDisplay()
         val preferencesRepository = AppPreferencesRepository(applicationContext)
 
         setContent {
@@ -87,11 +88,29 @@ class MainActivity : ComponentActivity() {
             CadenceTheme(
                 darkTheme = darkTheme,
                 dynamicColor = dynamicColor,
-                currency = prefs.currency,
+                preferences = prefs,
             ) {
                 PixelFundsRootNavigation(
                     preferencesRepository = preferencesRepository,
                 )
+            }
+        }
+    }
+
+    private fun enablePixelSmoothDisplay() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            val currentDisplay = display ?: return
+            val currentMode = currentDisplay.mode
+            val bestMode = currentDisplay.supportedModes
+                .filter {
+                    it.physicalWidth == currentMode.physicalWidth &&
+                        it.physicalHeight == currentMode.physicalHeight
+                }
+                .maxByOrNull { it.refreshRate }
+            if (bestMode != null && bestMode.modeId != currentMode.modeId) {
+                val attrs = window.attributes
+                attrs.preferredDisplayModeId = bestMode.modeId
+                window.attributes = attrs
             }
         }
     }

@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -35,6 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -54,17 +54,34 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.CadenceTab
+import com.example.data.CurrencyOption
+import com.example.data.WorldCurrencyCatalog
 import com.example.ui.theme.ExpressiveMotion
 import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.sin
 
-import androidx.compose.runtime.compositionLocalOf
-import com.example.data.CurrencyOption
-import com.example.data.WorldCurrencyCatalog
-
 val LocalAppCurrency = compositionLocalOf { WorldCurrencyCatalog.defaultCurrency() }
+val LocalShowDecimals = compositionLocalOf { true }
+val LocalHapticsEnabled = compositionLocalOf { true }
+val LocalReduceMotion = compositionLocalOf { false }
+
+/**
+ * Pixel-tuned haptic dispatcher that respects the user's Settings haptic preference.
+ */
+@Composable
+fun rememberPixelHaptics(): (HapticFeedbackType) -> Unit {
+    val haptics = LocalHapticFeedback.current
+    val enabled = LocalHapticsEnabled.current
+    return remember(haptics, enabled) {
+        { type ->
+            if (enabled) {
+                haptics.performHapticFeedback(type)
+            }
+        }
+    }
+}
 
 fun formatCurrencyValue(
     amount: Double,
@@ -105,11 +122,17 @@ fun formatCurrencyValue(
 @Composable
 fun formatCurrency(amount: Double, showCents: Boolean = true): String {
     val currency = LocalAppCurrency.current
-    return formatCurrencyValue(amount = amount, currency = currency, showCents = showCents)
+    val decimalsEnabled = LocalShowDecimals.current
+    return formatCurrencyValue(
+        amount = amount,
+        currency = currency,
+        showCents = showCents && decimalsEnabled,
+    )
 }
 
 /**
  * Material 3 Expressive organic wavy progress indicator with optional vertical elapsed-day marker.
+ * Optimized for Pixel 90/120Hz Smooth Display with zero per-frame Path allocations and Reduce Motion support.
  */
 @Composable
 fun WavyProgressIndicator(
@@ -124,20 +147,28 @@ fun WavyProgressIndicator(
     markerColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
     val clamped = progress.coerceIn(0f, 1f)
-    val infiniteTransition = rememberInfiniteTransition(label = "WavyPhase")
-    val phase by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2.0 * PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2800, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "WavyPhaseAngle",
-    )
+    val reduceMotion = LocalReduceMotion.current
+    val reusablePath = remember { Path() }
+
+    val phase: Float = if (reduceMotion) {
+        0f
+    } else {
+        val infiniteTransition = rememberInfiniteTransition(label = "WavyPhase")
+        val animated by infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = (2.0 * PI).toFloat(),
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 2800, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "WavyPhaseAngle",
+        )
+        animated
+    }
 
     Canvas(modifier = modifier) {
         val strokePx = strokeWidth.toPx()
-        val ampPx = waveAmplitude.toPx()
+        val ampPx = if (reduceMotion) 0f else waveAmplitude.toPx()
         val waveLenPx = wavelength.toPx().coerceAtLeast(12f)
         val centerY = size.height / 2f
         val startX = strokePx / 2f
@@ -158,42 +189,52 @@ fun WavyProgressIndicator(
             )
         }
 
-        // Active organic sine wave portion
+        // Active portion (organic sine wave or crisp flat bar when Reduce Motion is enabled)
         if (clamped > 0.005f) {
-            val path = Path()
-            val stepPx = 3f
-            var x = startX
-            var first = true
-            val effectiveAmp = if (clamped > 0.04f) ampPx else ampPx * (clamped / 0.04f)
-
-            while (x <= fillEndX) {
-                val angle = ((x - startX) / waveLenPx) * (2.0 * PI).toFloat() - phase
-                // Smoothly taper amplitude near ends so caps join cleanly
-                val distFromStart = (x - startX).coerceAtLeast(0f)
-                val distFromEnd = (fillEndX - x).coerceAtLeast(0f)
-                val taper = (minOf(distFromStart, distFromEnd) / (waveLenPx * 0.35f)).coerceIn(0f, 1f)
-                val y = centerY + sin(angle) * effectiveAmp * taper
-                if (first) {
-                    path.moveTo(x, y)
-                    first = false
-                } else {
-                    path.lineTo(x, y)
-                }
-                x += stepPx
-            }
-            if (fillEndX > startX) {
-                path.lineTo(fillEndX, centerY)
-            }
-
-            drawPath(
-                path = path,
-                color = color,
-                style = Stroke(
-                    width = strokePx,
+            if (reduceMotion) {
+                drawLine(
+                    color = color,
+                    start = Offset(startX, centerY),
+                    end = Offset(fillEndX, centerY),
+                    strokeWidth = strokePx,
                     cap = StrokeCap.Round,
-                    join = StrokeJoin.Round,
-                ),
-            )
+                )
+            } else {
+                reusablePath.reset()
+                val stepPx = 3f
+                var x = startX
+                var first = true
+                val effectiveAmp = if (clamped > 0.04f) ampPx else ampPx * (clamped / 0.04f)
+                val twoPi = (2.0 * PI).toFloat()
+
+                while (x <= fillEndX) {
+                    val angle = ((x - startX) / waveLenPx) * twoPi - phase
+                    val distFromStart = (x - startX).coerceAtLeast(0f)
+                    val distFromEnd = (fillEndX - x).coerceAtLeast(0f)
+                    val taper = (minOf(distFromStart, distFromEnd) / (waveLenPx * 0.35f)).coerceIn(0f, 1f)
+                    val y = centerY + sin(angle) * effectiveAmp * taper
+                    if (first) {
+                        reusablePath.moveTo(x, y)
+                        first = false
+                    } else {
+                        reusablePath.lineTo(x, y)
+                    }
+                    x += stepPx
+                }
+                if (fillEndX > startX) {
+                    reusablePath.lineTo(fillEndX, centerY)
+                }
+
+                drawPath(
+                    path = reusablePath,
+                    color = color,
+                    style = Stroke(
+                        width = strokePx,
+                        cap = StrokeCap.Round,
+                        join = StrokeJoin.Round,
+                    ),
+                )
+            }
         }
 
         // Optional elapsed-month vertical marker
@@ -220,12 +261,13 @@ fun FloatingPillToolbar(
     onAddExpense: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val haptics = LocalHapticFeedback.current
+    val performHaptic = rememberPixelHaptics()
+    val reduceMotion = LocalReduceMotion.current
     val fabInteraction = remember { MutableInteractionSource() }
     val isFabPressed by fabInteraction.collectIsPressedAsState()
     val fabCorner by animateDpAsState(
         targetValue = if (isFabPressed) 14.dp else 28.dp,
-        animationSpec = ExpressiveMotion.fastSpatial(),
+        animationSpec = if (reduceMotion) ExpressiveMotion.fastEffects() else ExpressiveMotion.fastSpatial(),
         label = "FabShapeMorph",
     )
 
@@ -251,7 +293,7 @@ fun FloatingPillToolbar(
                     val selected = tab == activeTab
                     val pillCorner by animateDpAsState(
                         targetValue = if (selected) 24.dp else 14.dp,
-                        animationSpec = ExpressiveMotion.fastSpatial(),
+                        animationSpec = if (reduceMotion) ExpressiveMotion.fastEffects() else ExpressiveMotion.fastSpatial(),
                         label = "NavPillMorph_${tab.name}",
                     )
                     Box(
@@ -263,7 +305,7 @@ fun FloatingPillToolbar(
                                 else Color.Transparent
                             )
                             .clickable {
-                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                performHaptic(HapticFeedbackType.TextHandleMove)
                                 onSelectTab(tab)
                             }
                             .padding(horizontal = if (selected) 16.dp else 13.dp, vertical = 10.dp)
@@ -283,10 +325,10 @@ fun FloatingPillToolbar(
                             )
                             AnimatedVisibility(
                                 visible = selected,
-                                enter = expandHorizontally(ExpressiveMotion.fastSpatial()) +
-                                    fadeIn(ExpressiveMotion.fastEffects()),
-                                exit = shrinkHorizontally(ExpressiveMotion.fastSpatial()) +
-                                    fadeOut(ExpressiveMotion.fastEffects()),
+                                enter = if (reduceMotion) fadeIn(ExpressiveMotion.fastEffects())
+                                else expandHorizontally(ExpressiveMotion.fastSpatial()) + fadeIn(ExpressiveMotion.fastEffects()),
+                                exit = if (reduceMotion) fadeOut(ExpressiveMotion.fastEffects())
+                                else shrinkHorizontally(ExpressiveMotion.fastSpatial()) + fadeOut(ExpressiveMotion.fastEffects()),
                             ) {
                                 Text(
                                     text = tab.label,
@@ -303,7 +345,7 @@ fun FloatingPillToolbar(
         // Morphing Vibrant Add Expense FAB
         Surface(
             onClick = {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                performHaptic(HapticFeedbackType.LongPress)
                 onAddExpense()
             },
             interactionSource = fabInteraction,

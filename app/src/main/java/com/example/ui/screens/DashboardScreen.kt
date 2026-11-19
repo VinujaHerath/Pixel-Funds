@@ -76,11 +76,12 @@ fun DashboardScreen(
     animatedVisibilityScope: AnimatedVisibilityScope,
     onCategoryClick: (BudgetCategory) -> Unit,
     onViewAllActivity: () -> Unit,
+    onOpenBillsAndSubs: () -> Unit,
     onOpenAccount: () -> Unit,
     onClearSampleData: () -> Unit,
     onChangeResetDay: (Int) -> Unit,
 ) {
-    val haptics = LocalHapticFeedback.current
+    val performHaptic = com.example.ui.components.rememberPixelHaptics()
     var showCycleInfoDialog by remember { mutableStateOf(false) }
     var showResetDayPicker by remember { mutableStateOf(false) }
 
@@ -169,7 +170,7 @@ fun DashboardScreen(
             .fillMaxSize()
             .testTag("dashboard_list"),
         contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(if (state.compactCards) 10.dp else 14.dp),
     ) {
         // Editorial Greeting Header
         item(key = "header") {
@@ -202,7 +203,7 @@ fun DashboardScreen(
                 ) {
                     Surface(
                         onClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            performHaptic(HapticFeedbackType.TextHandleMove)
                             showCycleInfoDialog = true
                         },
                         shape = CircleShape,
@@ -229,7 +230,7 @@ fun DashboardScreen(
                     }
                     Surface(
                         onClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            performHaptic(HapticFeedbackType.TextHandleMove)
                             onOpenAccount()
                         },
                         shape = CircleShape,
@@ -289,7 +290,7 @@ fun DashboardScreen(
                         )
                         TextButton(
                             onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                performHaptic(HapticFeedbackType.LongPress)
                                 onClearSampleData()
                             },
                             modifier = Modifier.testTag("clear_sample_banner_button"),
@@ -332,6 +333,7 @@ fun DashboardScreen(
                     QuickStatPillTile(
                         label = stringResource(R.string.dashboard_spent_label),
                         value = formatCurrency(state.totalSpentThisMonth, showCents = false),
+                        subtext = null,
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                         contentColor = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier
@@ -341,6 +343,9 @@ fun DashboardScreen(
                     QuickStatPillTile(
                         label = stringResource(R.string.dashboard_safe_per_day),
                         value = formatCurrency(state.safeDailySpend, showCents = false),
+                        subtext = if (state.includeFixedBillsInSafeDaily && state.upcomingDueThisCycleTotal > 0.0) {
+                            stringResource(R.string.dashboard_bills_reserved)
+                        } else null,
                         containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                         contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
                         modifier = Modifier
@@ -349,6 +354,17 @@ fun DashboardScreen(
                     )
                 }
             }
+        }
+
+        // 2.5 Side-by-side Recurring Bills & Subscriptions Snapshot Card
+        item(key = "recurring_subs_snapshot") {
+            DashboardBillsAndSubsBentoCard(
+                state = state,
+                onClick = {
+                    performHaptic(HapticFeedbackType.TextHandleMove)
+                    onOpenBillsAndSubs()
+                },
+            )
         }
 
         // 3. Top Categories Section Header
@@ -367,7 +383,7 @@ fun DashboardScreen(
                 )
                 TextButton(
                     onClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        performHaptic(HapticFeedbackType.TextHandleMove)
                         onViewAllActivity()
                     },
                     modifier = Modifier.testTag("view_all_activity_button"),
@@ -403,7 +419,7 @@ fun DashboardScreen(
                                 sharedTransitionScope = sharedTransitionScope,
                                 animatedVisibilityScope = animatedVisibilityScope,
                                 onClick = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    performHaptic(HapticFeedbackType.TextHandleMove)
                                     onCategoryClick(cat)
                                 },
                                 modifier = Modifier.weight(1f),
@@ -414,6 +430,127 @@ fun DashboardScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DashboardBillsAndSubsBentoCard(
+    state: CadenceUiState,
+    onClick: () -> Unit,
+) {
+    val activeBills = remember(state.recurringItems) { state.recurringBills.count { it.active } }
+    val activeSubs = remember(state.recurringItems) { state.subscriptions.count { it.active } }
+    val nextBill = state.nextUpcomingBill
+
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("dashboard_bills_subs_card"),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.dashboard_fixed_commitments),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.dashboard_manage),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Text(
+                            text = "${stringResource(R.string.recurring_bills_short)} ($activeBills)",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            text = "${formatCurrency(state.monthlyRecurringBillsTotal, showCents = false)}/mo",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Text(
+                            text = "${stringResource(R.string.subscriptions_title)} ($activeSubs)",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.tertiary,
+                        )
+                        Text(
+                            text = "${formatCurrency(state.monthlySubscriptionsTotal, showCents = false)}/mo",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+
+            if (nextBill != null) {
+                val daysUntil = (nextBill.nextDueDate.toEpochDay() - state.today.toEpochDay()).toInt()
+                val dueText = when {
+                    daysUntil < 0 -> stringResource(R.string.recurring_overdue, -daysUntil)
+                    daysUntil == 0 -> stringResource(R.string.recurring_due_today)
+                    daysUntil == 1 -> stringResource(R.string.recurring_due_tomorrow)
+                    else -> "in ${daysUntil}d (${nextBill.nextDueDate.formatShort()})"
+                }
+                Text(
+                    text = "Next due: ${nextBill.name} • ${formatCurrency(nextBill.amount, showCents = true)} • $dueText",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -582,6 +719,7 @@ private fun SpendPaceBentoCard(
 private fun QuickStatPillTile(
     label: String,
     value: String,
+    subtext: String?,
     containerColor: Color,
     contentColor: Color,
     modifier: Modifier = Modifier,
@@ -609,6 +747,15 @@ private fun QuickStatPillTile(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (!subtext.isNullOrBlank()) {
+                Text(
+                    text = subtext,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = contentColor.copy(alpha = 0.72f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

@@ -1,10 +1,14 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
@@ -27,12 +31,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Backspace
 import androidx.compose.material.icons.rounded.CalendarToday
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.ReceiptLong
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.Subscriptions
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -60,17 +69,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.BillingCadence
 import com.example.data.BudgetCategory
 import com.example.data.LocalDay
+import com.example.data.RecurringKind
 import com.example.data.Transaction
 import com.example.ui.components.LocalAppCurrency
+import com.example.ui.components.LocalReduceMotion
 import com.example.ui.components.formatCurrency
+import com.example.ui.components.rememberPixelHaptics
 import com.example.ui.theme.ExpressiveMotion
 import java.util.Locale
 
@@ -81,12 +95,20 @@ fun ExpenseEntryBottomSheet(
     editingTransaction: Transaction?,
     isSaving: Boolean,
     onDismiss: () -> Unit,
-    onSave: (amount: Double, categoryId: String, note: String, date: LocalDay) -> Unit,
+    onSave: (
+        amount: Double,
+        categoryId: String,
+        note: String,
+        date: LocalDay,
+        scheduleKind: RecurringKind?,
+        scheduleCadence: BillingCadence,
+    ) -> Unit,
 ) {
     if (categories.isEmpty()) return
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val haptics = LocalHapticFeedback.current
+    val performHaptic = rememberPixelHaptics()
+    val reduceMotion = LocalReduceMotion.current
     val today = remember { LocalDay.today() }
 
     var rawAmount by remember(editingTransaction) {
@@ -108,6 +130,12 @@ fun ExpenseEntryBottomSheet(
     var selectedDate by remember(editingTransaction) {
         mutableStateOf(editingTransaction?.date ?: today)
     }
+    var scheduleKind by remember(editingTransaction) {
+        mutableStateOf<RecurringKind?>(null)
+    }
+    var scheduleCadence by remember(editingTransaction) {
+        mutableStateOf(BillingCadence.MONTHLY)
+    }
     var showDatePicker by remember { mutableStateOf(false) }
 
     val parsedAmount = rawAmount.toDoubleOrNull() ?: 0.0
@@ -123,16 +151,17 @@ fun ExpenseEntryBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             // 1. Expressive Amount-First Hero Readout
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
+                    .padding(vertical = 2.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 val currency = LocalAppCurrency.current
@@ -146,10 +175,14 @@ fun ExpenseEntryBottomSheet(
                     AnimatedContent(
                         targetState = displayAmount,
                         transitionSpec = {
-                            (slideInVertically(ExpressiveMotion.fastSpatial()) { -it / 4 } +
-                                fadeIn(ExpressiveMotion.fastEffects())) togetherWith
-                                (slideOutVertically(ExpressiveMotion.fastSpatial()) { it / 4 } +
-                                    fadeOut(ExpressiveMotion.fastEffects()))
+                            if (reduceMotion) {
+                                fadeIn(ExpressiveMotion.fastEffects()) togetherWith fadeOut(ExpressiveMotion.fastEffects())
+                            } else {
+                                (slideInVertically(ExpressiveMotion.fastSpatial()) { -it / 4 } +
+                                    fadeIn(ExpressiveMotion.fastEffects())) togetherWith
+                                    (slideOutVertically(ExpressiveMotion.fastSpatial()) { it / 4 } +
+                                        fadeOut(ExpressiveMotion.fastEffects()))
+                            }
                         },
                         label = "AmountDigits",
                     ) { value ->
@@ -181,7 +214,7 @@ fun ExpenseEntryBottomSheet(
                             .heightIn(min = 48.dp)
                             .clip(RoundedCornerShape(corner))
                             .clickable {
-                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                performHaptic(HapticFeedbackType.TextHandleMove)
                                 selectedCategoryId = category.id
                             }
                             .testTag("entry_category_chip_${category.id}"),
@@ -208,7 +241,109 @@ fun ExpenseEntryBottomSheet(
                 }
             }
 
-            // 3. Inline Optional Note + Date Selector Row
+            // 3. Always-visible side-by-side One-time | Recurring | Subscription selector (for new expenses)
+            if (editingTransaction == null) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        ScheduleTypeSegment(
+                            label = stringResource(R.string.entry_one_time),
+                            icon = Icons.Rounded.ReceiptLong,
+                            selected = scheduleKind == null,
+                            onClick = {
+                                performHaptic(HapticFeedbackType.TextHandleMove)
+                                scheduleKind = null
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("entry_type_onetime"),
+                        )
+                        ScheduleTypeSegment(
+                            label = stringResource(R.string.recurring_bills_short),
+                            icon = Icons.Rounded.Repeat,
+                            selected = scheduleKind == RecurringKind.RECURRING,
+                            onClick = {
+                                performHaptic(HapticFeedbackType.TextHandleMove)
+                                scheduleKind = RecurringKind.RECURRING
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("entry_type_recurring"),
+                        )
+                        ScheduleTypeSegment(
+                            label = stringResource(R.string.subscription_singular),
+                            icon = Icons.Rounded.Subscriptions,
+                            selected = scheduleKind == RecurringKind.SUBSCRIPTION,
+                            onClick = {
+                                performHaptic(HapticFeedbackType.TextHandleMove)
+                                scheduleKind = RecurringKind.SUBSCRIPTION
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("entry_type_subscription"),
+                        )
+                    }
+
+                    AnimatedVisibility(
+                        visible = scheduleKind != null,
+                        enter = expandVertically(ExpressiveMotion.fastSpatial()) + fadeIn(ExpressiveMotion.fastEffects()),
+                        exit = shrinkVertically(ExpressiveMotion.fastSpatial()) + fadeOut(ExpressiveMotion.fastEffects()),
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                BillingCadence.entries.forEach { cadence ->
+                                    val selected = cadence == scheduleCadence
+                                    Surface(
+                                        onClick = {
+                                            performHaptic(HapticFeedbackType.TextHandleMove)
+                                            scheduleCadence = cadence
+                                        },
+                                        shape = CircleShape,
+                                        color = if (selected) MaterialTheme.colorScheme.secondaryContainer
+                                        else MaterialTheme.colorScheme.surfaceContainer,
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Box(
+                                            contentAlignment = Alignment.Center,
+                                            modifier = Modifier.padding(vertical = 7.dp, horizontal = 4.dp),
+                                        ) {
+                                            Text(
+                                                text = cadence.label,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
+                                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            Text(
+                                text = if (scheduleKind == RecurringKind.SUBSCRIPTION) {
+                                    stringResource(R.string.entry_sub_helper)
+                                } else {
+                                    stringResource(R.string.entry_recurring_helper)
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 4.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 4. Inline Optional Note + Date Selector Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -231,7 +366,7 @@ fun ExpenseEntryBottomSheet(
                 )
                 FilledTonalButton(
                     onClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        performHaptic(HapticFeedbackType.TextHandleMove)
                         showDatePicker = true
                     },
                     shape = RoundedCornerShape(20.dp),
@@ -251,7 +386,7 @@ fun ExpenseEntryBottomSheet(
                 }
             }
 
-            // 4. Tactile Spring Numpad
+            // 5. Tactile Spring Numpad
             val keys = remember {
                 listOf(
                     listOf("1", "2", "3"),
@@ -271,7 +406,7 @@ fun ExpenseEntryBottomSheet(
                                 label = key,
                                 modifier = Modifier.weight(1f),
                                 onClick = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    performHaptic(HapticFeedbackType.TextHandleMove)
                                     rawAmount = when (key) {
                                         "DEL" -> rawAmount.dropLast(1)
                                         "." -> if (rawAmount.contains(".")) rawAmount
@@ -291,19 +426,26 @@ fun ExpenseEntryBottomSheet(
                 }
             }
 
-            // 5. Primary Expressive Save Pill
+            // 6. Primary Expressive Save Pill
             Button(
                 onClick = {
                     if (parsedAmount > 0.0 && !isSaving) {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onSave(parsedAmount, selectedCategoryId, note, selectedDate)
+                        performHaptic(HapticFeedbackType.LongPress)
+                        onSave(
+                            parsedAmount,
+                            selectedCategoryId,
+                            note,
+                            selectedDate,
+                            if (editingTransaction == null) scheduleKind else null,
+                            scheduleCadence,
+                        )
                     }
                 },
                 enabled = parsedAmount > 0.0 && !isSaving,
                 shape = CircleShape,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp)
+                    .height(54.dp)
                     .testTag("entry_save_button"),
             ) {
                 if (isSaving) {
@@ -315,10 +457,17 @@ fun ExpenseEntryBottomSheet(
                 } else {
                     Icon(Icons.Rounded.Check, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
+                    val actionText = when {
+                        editingTransaction != null -> stringResource(R.string.entry_update_expense)
+                        scheduleKind == RecurringKind.RECURRING -> "Log & track bill ${formatCurrency(parsedAmount, showCents = true)}"
+                        scheduleKind == RecurringKind.SUBSCRIPTION -> "Log & track sub ${formatCurrency(parsedAmount, showCents = true)}"
+                        else -> "Log ${formatCurrency(parsedAmount, showCents = true)}"
+                    }
                     Text(
-                        text = if (editingTransaction != null) stringResource(R.string.entry_update_expense)
-                        else "Log ${formatCurrency(parsedAmount, showCents = true)}",
+                        text = actionText,
                         style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -355,6 +504,52 @@ fun ExpenseEntryBottomSheet(
 }
 
 @Composable
+private fun ScheduleTypeSegment(
+    label: String,
+    icon: ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val bg by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+        animationSpec = ExpressiveMotion.fastEffects(),
+        label = "EntrySchedBg_$label",
+    )
+    val fg by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.onPrimary
+        else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = ExpressiveMotion.fastEffects(),
+        label = "EntrySchedFg_$label",
+    )
+    Row(
+        modifier = modifier
+            .heightIn(min = 40.dp)
+            .clip(CircleShape)
+            .background(bg)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 6.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = fg,
+            modifier = Modifier.size(15.dp),
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = fg,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
 private fun NumpadKeyButton(
     label: String,
     modifier: Modifier,
@@ -362,8 +557,9 @@ private fun NumpadKeyButton(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
+    val reduceMotion = LocalReduceMotion.current
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.92f else 1f,
+        targetValue = if (pressed && !reduceMotion) 0.92f else 1f,
         animationSpec = ExpressiveMotion.fastSpatial(),
         label = "KeyPressScale",
     )
@@ -375,7 +571,7 @@ private fun NumpadKeyButton(
 
     Box(
         modifier = modifier
-            .height(54.dp)
+            .height(52.dp)
             .scale(scale)
             .clip(RoundedCornerShape(corner))
             .background(

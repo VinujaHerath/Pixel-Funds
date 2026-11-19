@@ -5,10 +5,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AppPreferencesRepository
 import com.example.data.AppThemeMode
+import com.example.data.BillingCadence
 import com.example.data.BudgetCategory
 import com.example.data.BudgetRepository
 import com.example.data.CadenceUiState
 import com.example.data.LocalDay
+import com.example.data.RecurringItem
+import com.example.data.RecurringKind
 import com.example.data.Transaction
 import com.example.data.UserPreferences
 import com.example.data.WorkspaceLoadState
@@ -27,6 +30,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 sealed interface CadenceEvent {
     data class ShowMessage(val message: String, val showUndo: Boolean = false) : CadenceEvent
@@ -41,6 +45,9 @@ private data class LocalUiControls(
     val isEntrySheetOpen: Boolean = false,
     val editingCategory: BudgetCategory? = null,
     val isCategorySheetOpen: Boolean = false,
+    val editingRecurring: RecurringItem? = null,
+    val isRecurringSheetOpen: Boolean = false,
+    val defaultRecurringKind: RecurringKind = RecurringKind.RECURRING,
     val isAccountSheetOpen: Boolean = false,
 )
 
@@ -50,6 +57,7 @@ private sealed interface DataWorkspaceState {
         val hasSampleData: Boolean,
         val categories: List<BudgetCategory>,
         val transactions: List<Transaction>,
+        val recurringItems: List<RecurringItem>,
     ) : DataWorkspaceState
 
     data class Error(val message: String) : DataWorkspaceState
@@ -91,11 +99,13 @@ class CadenceViewModel(
                 repository.observeHasSampleData(),
                 repository.observeCategories(),
                 repository.observeTransactions(),
-            ) { hasSampleData, categories, transactions ->
+                repository.observeRecurringItems(),
+            ) { hasSampleData, categories, transactions, recurringItems ->
                 DataWorkspaceState.Success(
                     hasSampleData = hasSampleData,
                     categories = categories,
                     transactions = transactions,
+                    recurringItems = recurringItems,
                 ) as DataWorkspaceState
             }.catch { error ->
                 val firestoreError = generateSequence(error) { it.cause }
@@ -134,10 +144,16 @@ class CadenceViewModel(
                 isEntrySheetOpen = controls.isEntrySheetOpen,
                 editingCategory = controls.editingCategory,
                 isCategorySheetOpen = controls.isCategorySheetOpen,
+                editingRecurring = controls.editingRecurring,
+                isRecurringSheetOpen = controls.isRecurringSheetOpen,
+                defaultRecurringKind = controls.defaultRecurringKind,
                 isAccountSheetOpen = controls.isAccountSheetOpen,
                 today = today,
                 budgetResetDay = prefs.budgetResetDay,
                 currency = prefs.currency,
+                includeFixedBillsInSafeDaily = prefs.includeFixedBillsInSafeDaily,
+                warningThresholdRatio = prefs.warningThresholdRatio,
+                compactCards = prefs.compactCards,
             )
 
             is DataWorkspaceState.Error -> CadenceUiState(
@@ -147,14 +163,20 @@ class CadenceViewModel(
                 today = today,
                 budgetResetDay = prefs.budgetResetDay,
                 currency = prefs.currency,
+                includeFixedBillsInSafeDaily = prefs.includeFixedBillsInSafeDaily,
+                warningThresholdRatio = prefs.warningThresholdRatio,
+                compactCards = prefs.compactCards,
             )
 
             is DataWorkspaceState.Success -> {
-                val hasSampleFlag = data.hasSampleData || data.transactions.any { it.sample }
+                val hasSampleFlag = data.hasSampleData ||
+                    data.transactions.any { it.sample } ||
+                    data.recurringItems.any { it.sample }
                 CadenceUiState(
                     loadState = WorkspaceLoadState.Ready,
                     categories = data.categories,
                     transactions = data.transactions,
+                    recurringItems = data.recurringItems,
                     hasSampleData = hasSampleFlag,
                     isMutating = controls.isMutating,
                     searchQuery = controls.searchQuery,
@@ -168,10 +190,16 @@ class CadenceViewModel(
                     isEntrySheetOpen = controls.isEntrySheetOpen,
                     editingCategory = controls.editingCategory,
                     isCategorySheetOpen = controls.isCategorySheetOpen,
+                    editingRecurring = controls.editingRecurring,
+                    isRecurringSheetOpen = controls.isRecurringSheetOpen,
+                    defaultRecurringKind = controls.defaultRecurringKind,
                     isAccountSheetOpen = controls.isAccountSheetOpen,
                     today = today,
                     budgetResetDay = prefs.budgetResetDay,
                     currency = prefs.currency,
+                    includeFixedBillsInSafeDaily = prefs.includeFixedBillsInSafeDaily,
+                    warningThresholdRatio = prefs.warningThresholdRatio,
+                    compactCards = prefs.compactCards,
                 )
             }
         }
@@ -187,6 +215,8 @@ class CadenceViewModel(
             currentDay.value = freshToday
         }
     }
+
+    // --- Preferences Updates ---
 
     fun updateBudgetResetDay(day: Int) {
         val clamped = day.coerceIn(1, 31)
@@ -206,24 +236,44 @@ class CadenceViewModel(
     }
 
     fun updateThemeMode(mode: AppThemeMode) {
-        viewModelScope.launch {
-            preferencesRepository.setThemeMode(mode)
-        }
+        viewModelScope.launch { preferencesRepository.setThemeMode(mode) }
     }
 
     fun updateDynamicColorInManualTheme(enabled: Boolean) {
-        viewModelScope.launch {
-            preferencesRepository.setDynamicColorInManualTheme(enabled)
-        }
+        viewModelScope.launch { preferencesRepository.setDynamicColorInManualTheme(enabled) }
+    }
+
+    fun updateShowDecimals(enabled: Boolean) {
+        viewModelScope.launch { preferencesRepository.setShowDecimals(enabled) }
+    }
+
+    fun updateHapticsEnabled(enabled: Boolean) {
+        viewModelScope.launch { preferencesRepository.setHapticsEnabled(enabled) }
+    }
+
+    fun updateReduceMotion(enabled: Boolean) {
+        viewModelScope.launch { preferencesRepository.setReduceMotion(enabled) }
+    }
+
+    fun updateWarningThresholdPercent(percent: Int) {
+        viewModelScope.launch { preferencesRepository.setWarningThresholdPercent(percent) }
+    }
+
+    fun updateIncludeFixedBillsInSafeDaily(enabled: Boolean) {
+        viewModelScope.launch { preferencesRepository.setIncludeFixedBillsInSafeDaily(enabled) }
+    }
+
+    fun updateCompactCards(enabled: Boolean) {
+        viewModelScope.launch { preferencesRepository.setCompactCards(enabled) }
     }
 
     fun retrySync() {
         syncDeviceDate()
         refreshTrigger.update { it + 1 }
-        viewModelScope.launch {
-            repository.ensureInitialSeed()
-        }
+        viewModelScope.launch { repository.ensureInitialSeed() }
     }
+
+    // --- Sheet & UI Controls ---
 
     fun openNewExpenseSheet() {
         if (uiState.value.categories.isEmpty()) {
@@ -254,6 +304,35 @@ class CadenceViewModel(
         localControls.update { it.copy(isCategorySheetOpen = false, editingCategory = null) }
     }
 
+    fun openNewRecurringSheet(defaultKind: RecurringKind = RecurringKind.RECURRING) {
+        if (uiState.value.categories.isEmpty()) {
+            _events.tryEmit(CadenceEvent.ShowMessage("Create a budget category first"))
+            openNewCategorySheet()
+            return
+        }
+        localControls.update {
+            it.copy(
+                editingRecurring = null,
+                defaultRecurringKind = defaultKind,
+                isRecurringSheetOpen = true,
+            )
+        }
+    }
+
+    fun openEditRecurringSheet(item: RecurringItem) {
+        localControls.update {
+            it.copy(
+                editingRecurring = item,
+                defaultRecurringKind = item.kind,
+                isRecurringSheetOpen = true,
+            )
+        }
+    }
+
+    fun dismissRecurringSheet() {
+        localControls.update { it.copy(isRecurringSheetOpen = false, editingRecurring = null) }
+    }
+
     fun openAccountSheet() {
         localControls.update { it.copy(isAccountSheetOpen = true) }
     }
@@ -276,11 +355,15 @@ class CadenceViewModel(
         localControls.update { it.copy(expandedCategoryId = id) }
     }
 
+    // --- Transactions + Optional Recurring/Subscription Creation ---
+
     fun saveTransaction(
         amount: Double,
         categoryId: String,
         note: String,
         date: LocalDay,
+        scheduleKind: RecurringKind? = null,
+        scheduleCadence: BillingCadence = BillingCadence.MONTHLY,
     ) {
         val currentCategories = uiState.value.categories
         val fallbackLabel = currentCategories.find { it.id == categoryId }?.name ?: "Expense"
@@ -306,12 +389,31 @@ class CadenceViewModel(
                     sample = false,
                 )
             }
+
+            if (result.isSuccess && editing == null && scheduleKind != null) {
+                val nextDue = scheduleCadence.nextOccurrenceAfter(date)
+                repository.addRecurringItem(
+                    categoryId = categoryId,
+                    name = cleanLabel,
+                    amount = amount,
+                    kind = scheduleKind,
+                    cadence = scheduleCadence,
+                    nextDueDate = nextDue,
+                    active = true,
+                    sample = false,
+                )
+            }
+
             localControls.update {
                 if (result.isSuccess) {
                     it.copy(isMutating = false, isEntrySheetOpen = false, editingTransaction = null)
                 } else {
                     it.copy(isMutating = false)
                 }
+            }
+            if (result.isSuccess && editing == null && scheduleKind != null) {
+                val label = if (scheduleKind == RecurringKind.SUBSCRIPTION) "subscription" else "recurring bill"
+                _events.emit(CadenceEvent.ShowMessage("Logged & added $label"))
             }
             result.onFailure { err ->
                 _events.emit(
@@ -362,6 +464,109 @@ class CadenceViewModel(
             }
         }
     }
+
+    // --- Recurring Transactions & Subscriptions CRUD ---
+
+    fun saveRecurringItem(
+        name: String,
+        amount: Double,
+        categoryId: String,
+        kind: RecurringKind,
+        cadence: BillingCadence,
+        nextDueDate: LocalDay,
+        active: Boolean,
+    ) {
+        val editing = localControls.value.editingRecurring
+        viewModelScope.launch {
+            localControls.update { it.copy(isMutating = true) }
+            val result = if (editing != null) {
+                repository.updateRecurringItem(
+                    recurringId = editing.id,
+                    categoryId = categoryId,
+                    name = name,
+                    amount = amount,
+                    kind = kind,
+                    cadence = cadence,
+                    nextDueDate = nextDueDate,
+                    active = active,
+                )
+            } else {
+                repository.addRecurringItem(
+                    categoryId = categoryId,
+                    name = name,
+                    amount = amount,
+                    kind = kind,
+                    cadence = cadence,
+                    nextDueDate = nextDueDate,
+                    active = active,
+                    sample = false,
+                )
+            }
+            localControls.update {
+                if (result.isSuccess) {
+                    it.copy(isMutating = false, isRecurringSheetOpen = false, editingRecurring = null)
+                } else {
+                    it.copy(isMutating = false)
+                }
+            }
+            result.onSuccess {
+                val typeLabel = if (kind == RecurringKind.SUBSCRIPTION) "subscription" else "recurring bill"
+                _events.emit(
+                    CadenceEvent.ShowMessage(
+                        if (editing != null) "Updated ${name.trim()}" else "Added $typeLabel"
+                    )
+                )
+            }.onFailure { err ->
+                _events.emit(
+                    CadenceEvent.ShowMessage(err.localizedMessage ?: "Couldn't save schedule")
+                )
+            }
+        }
+    }
+
+    fun toggleRecurringActive(item: RecurringItem, active: Boolean) {
+        viewModelScope.launch {
+            val result = repository.setRecurringActive(item.id, active)
+            result.onFailure { err ->
+                _events.emit(
+                    CadenceEvent.ShowMessage(err.localizedMessage ?: "Couldn't update status")
+                )
+            }
+        }
+    }
+
+    fun logRecurringPaymentNow(item: RecurringItem) {
+        val today = currentDay.value
+        viewModelScope.launch {
+            val result = repository.logRecurringPayment(item, today)
+            result.onSuccess {
+                _events.emit(CadenceEvent.ShowMessage("Logged ${item.name} & updated next due date"))
+            }.onFailure { err ->
+                _events.emit(
+                    CadenceEvent.ShowMessage(err.localizedMessage ?: "Couldn't log payment")
+                )
+            }
+        }
+    }
+
+    fun deleteRecurringItem(item: RecurringItem) {
+        viewModelScope.launch {
+            localControls.update { it.copy(isMutating = true) }
+            val result = repository.deleteRecurringItem(item.id)
+            localControls.update {
+                it.copy(isMutating = false, isRecurringSheetOpen = false, editingRecurring = null)
+            }
+            result.onSuccess {
+                _events.emit(CadenceEvent.ShowMessage("Removed ${item.name}"))
+            }.onFailure { err ->
+                _events.emit(
+                    CadenceEvent.ShowMessage(err.localizedMessage ?: "Couldn't delete item")
+                )
+            }
+        }
+    }
+
+    // --- Categories CRUD ---
 
     fun updateCategoryLimit(categoryId: String, newLimit: Double) {
         viewModelScope.launch {
@@ -457,13 +662,15 @@ class CadenceViewModel(
         }
     }
 
+    // --- Workspace Data Tools & CSV Export ---
+
     fun clearSampleData() {
         viewModelScope.launch {
             localControls.update { it.copy(isMutating = true) }
             val result = repository.clearSampleData()
-            localControls.update { it.copy(isMutating = false, isAccountSheetOpen = false) }
+            localControls.update { it.copy(isMutating = false) }
             result.onSuccess {
-                _events.emit(CadenceEvent.ShowMessage("Sample transactions cleared"))
+                _events.emit(CadenceEvent.ShowMessage("Sample data cleared"))
             }.onFailure { err ->
                 _events.emit(
                     CadenceEvent.ShowMessage(err.localizedMessage ?: "Couldn't clear sample data")
@@ -476,15 +683,51 @@ class CadenceViewModel(
         viewModelScope.launch {
             localControls.update { it.copy(isMutating = true) }
             val result = repository.restoreSampleData()
-            localControls.update { it.copy(isMutating = false, isAccountSheetOpen = false) }
+            localControls.update { it.copy(isMutating = false) }
             result.onSuccess {
-                _events.emit(CadenceEvent.ShowMessage("Sample transactions loaded"))
+                _events.emit(CadenceEvent.ShowMessage("Sample data loaded"))
             }.onFailure { err ->
                 _events.emit(
                     CadenceEvent.ShowMessage(err.localizedMessage ?: "Couldn't load sample data")
                 )
             }
         }
+    }
+
+    fun clearAllTransactions() {
+        viewModelScope.launch {
+            localControls.update { it.copy(isMutating = true) }
+            val result = repository.clearAllTransactions()
+            localControls.update { it.copy(isMutating = false) }
+            result.onSuccess {
+                _events.emit(CadenceEvent.ShowMessage("All transactions cleared"))
+            }.onFailure { err ->
+                _events.emit(
+                    CadenceEvent.ShowMessage(err.localizedMessage ?: "Couldn't clear transactions")
+                )
+            }
+        }
+    }
+
+    fun buildTransactionsCsv(): String {
+        val state = uiState.value
+        val categoryMap = state.categories.associateBy { it.id }
+        val currencyCode = state.currency.code
+        val sb = StringBuilder()
+        sb.appendLine("Date,Category,Merchant/Note,Amount,Currency")
+        state.transactions
+            .sortedByDescending { it.date }
+            .forEach { tx ->
+                val catName = (categoryMap[tx.categoryId]?.name ?: "General").replace("\"", "\"\"")
+                val note = tx.merchantOrNote.replace("\"", "\"\"")
+                val amt = String.format(Locale.US, "%.2f", tx.amount)
+                sb.appendLine("${tx.date.formatIsoDate()},\"$catName\",\"$note\",$amt,$currencyCode")
+            }
+        return sb.toString()
+    }
+
+    fun showToastMessage(message: String) {
+        _events.tryEmit(CadenceEvent.ShowMessage(message))
     }
 
     private companion object {

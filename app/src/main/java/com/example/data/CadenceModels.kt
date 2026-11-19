@@ -43,6 +43,46 @@ enum class CadenceTab(val label: String, val icon: ImageVector) {
     Insights("Insights", Icons.Rounded.AutoGraph),
 }
 
+enum class RecurringKind(val storageKey: String, val label: String) {
+    RECURRING("recurring", "Recurring"),
+    SUBSCRIPTION("subscription", "Subscription");
+
+    companion object {
+        fun fromKey(key: String?): RecurringKind =
+            entries.find { it.storageKey == key?.lowercase(Locale.ROOT) } ?: RECURRING
+    }
+}
+
+enum class BillingCadence(
+    val storageKey: String,
+    val label: String,
+    val shortLabel: String,
+) {
+    WEEKLY("weekly", "Weekly", "/wk"),
+    BIWEEKLY("biweekly", "Every 2 wks", "/2wk"),
+    MONTHLY("monthly", "Monthly", "/mo"),
+    YEARLY("yearly", "Yearly", "/yr");
+
+    fun monthlyEquivalent(amount: Double): Double = when (this) {
+        WEEKLY -> amount * (52.0 / 12.0)
+        BIWEEKLY -> amount * (26.0 / 12.0)
+        MONTHLY -> amount
+        YEARLY -> amount / 12.0
+    }
+
+    fun nextOccurrenceAfter(date: LocalDay): LocalDay = when (this) {
+        WEEKLY -> date.plusDays(7)
+        BIWEEKLY -> date.plusDays(14)
+        MONTHLY -> date.plusMonthsClamped(1, date.dayOfMonth)
+        YEARLY -> date.plusMonthsClamped(12, date.dayOfMonth)
+    }
+
+    companion object {
+        fun fromKey(key: String?): BillingCadence =
+            entries.find { it.storageKey == key?.lowercase(Locale.ROOT) } ?: MONTHLY
+    }
+}
+
 /**
  * API 24+ compatible timezone-safe calendar date using Howard Hinnant civil-date epoch math.
  */
@@ -64,18 +104,29 @@ data class LocalDay(
 
     fun minusDays(days: Long): LocalDay = fromEpochDay(toEpochDay() - days)
 
-    fun lengthOfMonth(): Int = when (month) {
-        1, 3, 5, 7, 8, 10, 12 -> 31
-        4, 6, 9, 11 -> 30
-        2 -> if (isLeapYear(year)) 29 else 28
-        else -> 30
-    }
+    fun plusDays(days: Long): LocalDay = fromEpochDay(toEpochDay() + days)
+
+    fun lengthOfMonth(): Int = lengthOfMonthFor(year, month)
 
     fun isSameMonth(other: LocalDay): Boolean = year == other.year && month == other.month
 
     fun monthFullName(): String {
         val cal = toUtcCalendar()
         return SimpleDateFormat("MMMM", Locale.getDefault()).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.format(cal.time)
+    }
+
+    fun monthShortName(): String {
+        val cal = toUtcCalendar()
+        return SimpleDateFormat("MMM", Locale.getDefault()).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.format(cal.time)
+    }
+
+    fun monthYearShort(): String {
+        val cal = toUtcCalendar()
+        return SimpleDateFormat("MMM yyyy", Locale.getDefault()).apply {
             timeZone = TimeZone.getTimeZone("UTC")
         }.format(cal.time)
     }
@@ -105,6 +156,12 @@ data class LocalDay(
         )
     }
 
+    /** 0 = Mon .. 6 = Sun */
+    fun dayOfWeekIndexMonFirst(): Int {
+        // 1970-01-01 was Thursday (index 3 in Mon=0..Sun=6)
+        return Math.floorMod(toEpochDay() + 3L, 7L).toInt()
+    }
+
     fun dayOfWeekShort(): String {
         val cal = toUtcCalendar()
         return SimpleDateFormat("EEE", Locale.getDefault()).apply {
@@ -132,6 +189,8 @@ data class LocalDay(
             timeZone = TimeZone.getTimeZone("UTC")
         }.format(cal.time)
     }
+
+    fun formatIsoDate(): String = String.format(Locale.US, "%04d-%02d-%02d", year, month, dayOfMonth)
 
     fun toUtcMillis(): Long = toUtcCalendar().timeInMillis
 
@@ -316,6 +375,35 @@ data class TransactionDoc(
     )
 }
 
+@Keep
+@IgnoreExtraProperties
+data class RecurringItemDoc(
+    @DocumentId val id: String = "",
+    val userId: String = "",
+    val categoryId: String = "",
+    val name: String = "",
+    val amount: Double = 0.0,
+    val kind: String = "recurring",
+    val cadence: String = "monthly",
+    val nextDueEpochDay: Long = 0L,
+    val active: Boolean = true,
+    val sample: Boolean = false,
+    @ServerTimestamp val createdAt: Timestamp? = null,
+    @ServerTimestamp val updatedAt: Timestamp? = null,
+) {
+    fun toDomain(): RecurringItem = RecurringItem(
+        id = id,
+        categoryId = categoryId,
+        name = name,
+        amount = amount,
+        kind = RecurringKind.fromKey(kind),
+        cadence = BillingCadence.fromKey(cadence),
+        nextDueDate = LocalDay.fromEpochDay(nextDueEpochDay),
+        active = active,
+        sample = sample,
+    )
+}
+
 // --- UI Domain Models ---
 
 @Immutable
@@ -342,6 +430,22 @@ data class Transaction(
     val createdAtSeconds: Long = 0L,
 )
 
+@Immutable
+data class RecurringItem(
+    val id: String,
+    val categoryId: String,
+    val name: String,
+    val amount: Double,
+    val kind: RecurringKind,
+    val cadence: BillingCadence,
+    val nextDueDate: LocalDay,
+    val active: Boolean = true,
+    val sample: Boolean = false,
+) {
+    val monthlyEquivalent: Double
+        get() = cadence.monthlyEquivalent(amount)
+}
+
 sealed interface WorkspaceLoadState {
     data object Loading : WorkspaceLoadState
     data object Ready : WorkspaceLoadState
@@ -353,6 +457,7 @@ data class CadenceUiState(
     val loadState: WorkspaceLoadState = WorkspaceLoadState.Loading,
     val categories: List<BudgetCategory> = emptyList(),
     val transactions: List<Transaction> = emptyList(),
+    val recurringItems: List<RecurringItem> = emptyList(),
     val hasSampleData: Boolean = false,
     val isMutating: Boolean = false,
     val searchQuery: String = "",
@@ -362,10 +467,16 @@ data class CadenceUiState(
     val isEntrySheetOpen: Boolean = false,
     val editingCategory: BudgetCategory? = null,
     val isCategorySheetOpen: Boolean = false,
+    val editingRecurring: RecurringItem? = null,
+    val isRecurringSheetOpen: Boolean = false,
+    val defaultRecurringKind: RecurringKind = RecurringKind.RECURRING,
     val isAccountSheetOpen: Boolean = false,
     val today: LocalDay = LocalDay.today(),
     val budgetResetDay: Int = 1,
     val currency: CurrencyOption = WorldCurrencyCatalog.defaultCurrency(),
+    val includeFixedBillsInSafeDaily: Boolean = false,
+    val warningThresholdRatio: Float = 0.80f,
+    val compactCards: Boolean = false,
 ) {
     val cycleStart: LocalDay
         get() {
@@ -428,8 +539,40 @@ data class CadenceUiState(
     val daysRemaining: Int
         get() = (nextResetDate.toEpochDay() - today.toEpochDay()).toInt().coerceAtLeast(1)
 
+    val activeRecurringItems: List<RecurringItem>
+        get() = recurringItems.filter { it.active }
+
+    val recurringBills: List<RecurringItem>
+        get() = recurringItems.filter { it.kind == RecurringKind.RECURRING }
+            .sortedWith(compareByDescending<RecurringItem> { it.active }.thenBy { it.nextDueDate })
+
+    val subscriptions: List<RecurringItem>
+        get() = recurringItems.filter { it.kind == RecurringKind.SUBSCRIPTION }
+            .sortedWith(compareByDescending<RecurringItem> { it.active }.thenBy { it.nextDueDate })
+
+    val monthlyRecurringBillsTotal: Double
+        get() = activeRecurringItems.filter { it.kind == RecurringKind.RECURRING }.sumOf { it.monthlyEquivalent }
+
+    val monthlySubscriptionsTotal: Double
+        get() = activeRecurringItems.filter { it.kind == RecurringKind.SUBSCRIPTION }.sumOf { it.monthlyEquivalent }
+
+    val totalMonthlyFixedCommitments: Double
+        get() = monthlyRecurringBillsTotal + monthlySubscriptionsTotal
+
+    /** Active recurring/subscription charges still due before the current cycle ends. */
+    val upcomingDueThisCycleTotal: Double
+        get() = activeRecurringItems
+            .filter { it.nextDueDate >= today && it.nextDueDate < nextResetDate }
+            .sumOf { it.amount }
+
+    val nextUpcomingBill: RecurringItem?
+        get() = activeRecurringItems.minByOrNull { it.nextDueDate }
+
     val safeDailySpend: Double
-        get() = (remainingBudget / daysRemaining).coerceAtLeast(0.0)
+        get() {
+            val reserved = if (includeFixedBillsInSafeDaily) upcomingDueThisCycleTotal else 0.0
+            return ((remainingBudget - reserved) / daysRemaining).coerceAtLeast(0.0)
+        }
 
     fun spentForCategoryThisMonth(categoryId: String): Double =
         currentMonthTransactions.filter { it.categoryId == categoryId }.sumOf { it.amount }

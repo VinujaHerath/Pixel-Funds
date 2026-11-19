@@ -12,10 +12,15 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction as RoomTransaction
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
+import com.example.data.BillingCadence
 import com.example.data.BudgetCategory
 import com.example.data.BudgetRepository
 import com.example.data.CategoryIconCatalog
 import com.example.data.LocalDay
+import com.example.data.RecurringItem
+import com.example.data.RecurringKind
 import com.example.data.StarterBudgetData
 import com.example.data.Transaction
 import kotlinx.coroutines.CancellationException
@@ -71,6 +76,31 @@ data class LocalTransactionEntity(
         date = LocalDay.fromEpochDay(dateEpochDay),
         sample = sample,
         createdAtSeconds = createdAtSeconds,
+    )
+}
+
+@Entity(tableName = "local_recurring_items")
+data class LocalRecurringEntity(
+    @PrimaryKey val id: String,
+    val categoryId: String,
+    val name: String,
+    val amount: Double,
+    val kind: String,
+    val cadence: String,
+    val nextDueEpochDay: Long,
+    val active: Boolean,
+    val sample: Boolean,
+) {
+    fun toDomain(): RecurringItem = RecurringItem(
+        id = id,
+        categoryId = categoryId,
+        name = name,
+        amount = amount,
+        kind = RecurringKind.fromKey(kind),
+        cadence = BillingCadence.fromKey(cadence),
+        nextDueDate = LocalDay.fromEpochDay(nextDueEpochDay),
+        active = active,
+        sample = sample,
     )
 }
 
@@ -148,10 +178,68 @@ interface PixelFundsDao {
     @Query("DELETE FROM local_transactions WHERE sample = 1")
     suspend fun deleteSampleTransactions()
 
+    @Query("DELETE FROM local_transactions")
+    suspend fun deleteAllTransactions()
+
+    // Recurring & Subscriptions
+    @Query("SELECT * FROM local_recurring_items ORDER BY active DESC, nextDueEpochDay ASC, name ASC")
+    fun observeRecurringItems(): Flow<List<LocalRecurringEntity>>
+
+    @Query("SELECT * FROM local_recurring_items ORDER BY active DESC, nextDueEpochDay ASC, name ASC")
+    suspend fun getRecurringItems(): List<LocalRecurringEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRecurringItem(item: LocalRecurringEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRecurringItems(items: List<LocalRecurringEntity>)
+
+    @Query(
+        "UPDATE local_recurring_items SET categoryId = :categoryId, name = :name, amount = :amount, " +
+            "kind = :kind, cadence = :cadence, nextDueEpochDay = :nextDueEpochDay, active = :active, " +
+            "sample = 0 WHERE id = :id"
+    )
+    suspend fun updateRecurringItem(
+        id: String,
+        categoryId: String,
+        name: String,
+        amount: Double,
+        kind: String,
+        cadence: String,
+        nextDueEpochDay: Long,
+        active: Boolean,
+    )
+
+    @Query("UPDATE local_recurring_items SET active = :active WHERE id = :id")
+    suspend fun setRecurringActive(id: String, active: Boolean)
+
+    @Query("UPDATE local_recurring_items SET nextDueEpochDay = :nextDueEpochDay WHERE id = :id")
+    suspend fun advanceRecurringDueDate(id: String, nextDueEpochDay: Long)
+
+    @Query("UPDATE local_recurring_items SET categoryId = :fallbackCategoryId WHERE categoryId = :oldCategoryId")
+    suspend fun reassignRecurringItems(oldCategoryId: String, fallbackCategoryId: String)
+
+    @Query("DELETE FROM local_recurring_items WHERE id = :id")
+    suspend fun deleteRecurringItem(id: String)
+
+    @Query("DELETE FROM local_recurring_items WHERE sample = 1")
+    suspend fun deleteSampleRecurringItems()
+
     @RoomTransaction
     suspend fun deleteCategoryAndReassign(categoryId: String, fallbackCategoryId: String) {
         reassignTransactions(categoryId, fallbackCategoryId)
+        reassignRecurringItems(categoryId, fallbackCategoryId)
         deleteCategory(categoryId)
+    }
+
+    @RoomTransaction
+    suspend fun logRecurringAndAdvance(
+        transaction: LocalTransactionEntity,
+        recurringId: String,
+        nextDueEpochDay: Long,
+    ) {
+        insertTransaction(transaction)
+        advanceRecurringDueDate(recurringId, nextDueEpochDay)
     }
 }
 
@@ -160,8 +248,9 @@ interface PixelFundsDao {
         LocalWorkspaceEntity::class,
         LocalCategoryEntity::class,
         LocalTransactionEntity::class,
+        LocalRecurringEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class PixelFundsDatabase : RoomDatabase() {
@@ -171,13 +260,37 @@ abstract class PixelFundsDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: PixelFundsDatabase? = null
 
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `local_recurring_items` (
+                        `id` TEXT NOT NULL,
+                        `categoryId` TEXT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `amount` REAL NOT NULL,
+                        `kind` TEXT NOT NULL,
+                        `cadence` TEXT NOT NULL,
+                        `nextDueEpochDay` INTEGER NOT NULL,
+                        `active` INTEGER NOT NULL,
+                        `sample` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getInstance(context: Context): PixelFundsDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     PixelFundsDatabase::class.java,
                     "pixel_funds_local.db",
-                ).build().also { INSTANCE = it }
+                )
+                    .addMigrations(MIGRATION_1_2)
+                    .build()
+                    .also { INSTANCE = it }
             }
     }
 }
@@ -185,6 +298,7 @@ abstract class PixelFundsDatabase : RoomDatabase() {
 data class LocalMigrationSnapshot(
     val categories: List<BudgetCategory>,
     val transactions: List<Transaction>,
+    val recurringItems: List<RecurringItem>,
     val hasSampleData: Boolean,
 )
 
@@ -199,10 +313,12 @@ class LocalBudgetRepository(
         val categories = dao.getCategories().map { it.toDomain() }
         if (categories.isEmpty()) return null
         val transactions = dao.getTransactions().map { it.toDomain() }
+        val recurring = dao.getRecurringItems().map { it.toDomain() }
         return LocalMigrationSnapshot(
             categories = categories,
             transactions = transactions,
-            hasSampleData = workspace.hasSampleData || transactions.any { it.sample },
+            recurringItems = recurring,
+            hasSampleData = workspace.hasSampleData || transactions.any { it.sample } || recurring.any { it.sample },
         )
     }
 
@@ -215,13 +331,40 @@ class LocalBudgetRepository(
     override fun observeTransactions(): Flow<List<Transaction>> =
         dao.observeTransactions().map { list -> list.map { it.toDomain() } }
 
+    override fun observeRecurringItems(): Flow<List<RecurringItem>> =
+        dao.observeRecurringItems().map { list -> list.map { it.toDomain() } }
+
     override suspend fun ensureInitialSeed(): Result<Unit> = runSafe {
         val existing = dao.getWorkspace()
-        if (existing != null && existing.seeded) return@runSafe
-
         val today = LocalDay.today()
-        val nowSec = System.currentTimeMillis() / 1000L
 
+        if (existing != null && existing.seeded) {
+            // Upgrade convenience: if workspace still has sample data enabled and zero recurring rows yet,
+            // seed the starter recurring & subscription showcase once.
+            if (existing.hasSampleData && dao.getRecurringItems().isEmpty()) {
+                val validCatIds = dao.getCategories().map { it.id }.toSet()
+                val fallbackCat = validCatIds.firstOrNull()
+                if (fallbackCat != null) {
+                    val starterRecurring = StarterBudgetData.defaultRecurringItems(today).map { seed ->
+                        LocalRecurringEntity(
+                            id = seed.id,
+                            categoryId = if (seed.categoryId in validCatIds) seed.categoryId else fallbackCat,
+                            name = seed.name,
+                            amount = seed.amount,
+                            kind = seed.kind.storageKey,
+                            cadence = seed.cadence.storageKey,
+                            nextDueEpochDay = seed.nextDueDate.toEpochDay(),
+                            active = true,
+                            sample = true,
+                        )
+                    }
+                    dao.insertRecurringItems(starterRecurring)
+                }
+            }
+            return@runSafe
+        }
+
+        val nowSec = System.currentTimeMillis() / 1000L
         val categories = StarterBudgetData.defaultCategories().mapIndexed { index, seed ->
             LocalCategoryEntity(
                 id = seed.id,
@@ -244,14 +387,29 @@ class LocalBudgetRepository(
                 createdAtSeconds = nowSec - index,
             )
         }
+        val recurring = StarterBudgetData.defaultRecurringItems(today).map { seed ->
+            LocalRecurringEntity(
+                id = seed.id,
+                categoryId = seed.categoryId,
+                name = seed.name,
+                amount = seed.amount,
+                kind = seed.kind.storageKey,
+                cadence = seed.cadence.storageKey,
+                nextDueEpochDay = seed.nextDueDate.toEpochDay(),
+                active = true,
+                sample = true,
+            )
+        }
 
         dao.insertCategories(categories)
         dao.insertTransactions(transactions)
+        dao.insertRecurringItems(recurring)
         dao.upsertWorkspace(LocalWorkspaceEntity(id = 1, seeded = true, hasSampleData = true))
     }
 
     override suspend fun clearSampleData(): Result<Unit> = runSafe {
         dao.deleteSampleTransactions()
+        dao.deleteSampleRecurringItems()
         dao.upsertWorkspace(LocalWorkspaceEntity(id = 1, seeded = true, hasSampleData = false))
     }
 
@@ -282,10 +440,30 @@ class LocalBudgetRepository(
                 createdAtSeconds = nowSec - index,
             )
         }
+        val sampleRecurring = StarterBudgetData.defaultRecurringItems(today).map { seed ->
+            LocalRecurringEntity(
+                id = seed.id,
+                categoryId = seed.categoryId,
+                name = seed.name,
+                amount = seed.amount,
+                kind = seed.kind.storageKey,
+                cadence = seed.cadence.storageKey,
+                nextDueEpochDay = seed.nextDueDate.toEpochDay(),
+                active = true,
+                sample = true,
+            )
+        }
 
         if (missingCategories.isNotEmpty()) dao.insertCategories(missingCategories)
         dao.insertTransactions(sampleTxs)
+        dao.insertRecurringItems(sampleRecurring)
         dao.upsertWorkspace(LocalWorkspaceEntity(id = 1, seeded = true, hasSampleData = true))
+    }
+
+    override suspend fun clearAllTransactions(): Result<Unit> = runSafe {
+        dao.deleteAllTransactions()
+        val hasSampleRecurring = dao.getRecurringItems().any { it.sample }
+        dao.upsertWorkspace(LocalWorkspaceEntity(id = 1, seeded = true, hasSampleData = hasSampleRecurring))
     }
 
     override suspend fun addTransaction(
@@ -297,7 +475,7 @@ class LocalBudgetRepository(
     ): Result<Unit> = runSafe {
         val cleanNote = merchantOrNote.trim().take(120)
         require(categoryId.isNotBlank()) { "Category must be selected." }
-        require(amount > 0.0 && amount <= 1_000_000.0) { "Amount must be between $0.01 and $1,000,000." }
+        require(amount > 0.0 && amount <= 1_000_000.0) { "Amount must be positive." }
         require(cleanNote.isNotEmpty()) { "Merchant or note cannot be empty." }
 
         dao.insertTransaction(
@@ -323,7 +501,7 @@ class LocalBudgetRepository(
         val cleanNote = merchantOrNote.trim().take(120)
         require(transactionId.isNotBlank()) { "Transaction ID is required." }
         require(categoryId.isNotBlank()) { "Category must be selected." }
-        require(amount > 0.0 && amount <= 1_000_000.0) { "Amount must be between $0.01 and $1,000,000." }
+        require(amount > 0.0 && amount <= 1_000_000.0) { "Amount must be positive." }
         require(cleanNote.isNotEmpty()) { "Merchant or note cannot be empty." }
 
         dao.updateTransaction(
@@ -338,6 +516,92 @@ class LocalBudgetRepository(
     override suspend fun deleteTransaction(transactionId: String): Result<Unit> = runSafe {
         require(transactionId.isNotBlank()) { "Transaction ID is required." }
         dao.deleteTransaction(transactionId)
+    }
+
+    override suspend fun addRecurringItem(
+        categoryId: String,
+        name: String,
+        amount: Double,
+        kind: RecurringKind,
+        cadence: BillingCadence,
+        nextDueDate: LocalDay,
+        active: Boolean,
+        sample: Boolean,
+    ): Result<Unit> = runSafe {
+        val cleanName = name.trim().take(80)
+        require(categoryId.isNotBlank()) { "Category must be selected." }
+        require(cleanName.isNotEmpty()) { "Name cannot be empty." }
+        require(amount > 0.0 && amount <= 1_000_000.0) { "Amount must be positive." }
+
+        dao.insertRecurringItem(
+            LocalRecurringEntity(
+                id = "rec_${UUID.randomUUID().toString().replace("-", "").take(12)}",
+                categoryId = categoryId,
+                name = cleanName,
+                amount = amount,
+                kind = kind.storageKey,
+                cadence = cadence.storageKey,
+                nextDueEpochDay = nextDueDate.toEpochDay(),
+                active = active,
+                sample = sample,
+            )
+        )
+    }
+
+    override suspend fun updateRecurringItem(
+        recurringId: String,
+        categoryId: String,
+        name: String,
+        amount: Double,
+        kind: RecurringKind,
+        cadence: BillingCadence,
+        nextDueDate: LocalDay,
+        active: Boolean,
+    ): Result<Unit> = runSafe {
+        val cleanName = name.trim().take(80)
+        require(recurringId.isNotBlank()) { "Recurring item ID required." }
+        require(categoryId.isNotBlank()) { "Category must be selected." }
+        require(cleanName.isNotEmpty()) { "Name cannot be empty." }
+        require(amount > 0.0 && amount <= 1_000_000.0) { "Amount must be positive." }
+
+        dao.updateRecurringItem(
+            id = recurringId,
+            categoryId = categoryId,
+            name = cleanName,
+            amount = amount,
+            kind = kind.storageKey,
+            cadence = cadence.storageKey,
+            nextDueEpochDay = nextDueDate.toEpochDay(),
+            active = active,
+        )
+    }
+
+    override suspend fun setRecurringActive(recurringId: String, active: Boolean): Result<Unit> = runSafe {
+        require(recurringId.isNotBlank()) { "Recurring item ID required." }
+        dao.setRecurringActive(recurringId, active)
+    }
+
+    override suspend fun logRecurringPayment(item: RecurringItem, paidOn: LocalDay): Result<Unit> = runSafe {
+        val nextDue = item.cadence.nextOccurrenceAfter(maxOf(item.nextDueDate, paidOn))
+        val tx = LocalTransactionEntity(
+            id = "tx_${UUID.randomUUID().toString().replace("-", "").take(12)}",
+            categoryId = item.categoryId,
+            amount = item.amount,
+            merchantOrNote = item.name.take(120),
+            dateEpochDay = paidOn.toEpochDay(),
+            sample = false,
+            createdAtSeconds = System.currentTimeMillis() / 1000L,
+        )
+        dao.logRecurringAndAdvance(
+            transaction = tx,
+            recurringId = item.id,
+            nextDueEpochDay = nextDue.toEpochDay(),
+        )
+    }
+
+    override suspend fun deleteRecurringItem(recurringId: String): Result<Unit> = runSafe {
+        require(recurringId.isNotBlank()) { "Recurring item ID required." }
+        dao.deleteRecurringItem(recurringId)
     }
 
     override suspend fun createCategory(

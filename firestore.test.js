@@ -331,4 +331,121 @@ test("Cross-user isolation blocks Bob from accessing or mutating Alice's data", 
       .doc("spoof")
       .set(validCategoryPayload(ALICE_UID))
   );
+  await assertFails(aliceRef.collection("recurring").get());
 });
+
+function validRecurringPayload(uid, categoryId, overrides = {}) {
+  const now = pastDate(5000);
+  return {
+    userId: uid,
+    categoryId,
+    name: "Pixel Cloud Storage",
+    amount: 9.99,
+    kind: "subscription",
+    cadence: "monthly",
+    nextDueEpochDay: 20780,
+    active: true,
+    sample: false,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
+test("Owner can CRUD recurring bills and subscriptions; invalid kind/cadence/orphan category fail", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const userRef = aliceDb.collection("users").doc(ALICE_UID);
+  const categoriesCol = userRef.collection("categories");
+  const recCol = userRef.collection("recurring");
+
+  // Empty list succeeds
+  await assertSucceeds(recCol.get());
+
+  // Missing category fails
+  await assertFails(
+    recCol.doc("rec_orphan").set(validRecurringPayload(ALICE_UID, "missing_cat"))
+  );
+
+  // Seed categories
+  await assertSucceeds(
+    categoriesCol.doc("bills").set(validCategoryPayload(ALICE_UID, { name: "Bills", iconKey: "bills" }))
+  );
+
+  // Valid subscription create
+  await assertSucceeds(
+    recCol.doc("sub_cloud").set(validRecurringPayload(ALICE_UID, "bills"))
+  );
+
+  // Valid recurring bill create
+  await assertSucceeds(
+    recCol.doc("bill_fiber").set(
+      validRecurringPayload(ALICE_UID, "bills", {
+        name: "Fiber Internet",
+        amount: 70.0,
+        kind: "recurring",
+        cadence: "monthly",
+      })
+    )
+  );
+
+  // Reject invalid kind
+  await assertFails(
+    recCol.doc("bad_kind").set(
+      validRecurringPayload(ALICE_UID, "bills", { kind: "onetime" })
+    )
+  );
+
+  // Reject invalid cadence
+  await assertFails(
+    recCol.doc("bad_cadence").set(
+      validRecurringPayload(ALICE_UID, "bills", { cadence: "daily" })
+    )
+  );
+
+  // Reject ghost field
+  await assertFails(
+    recCol.doc("ghost_rec").set({
+      ...validRecurringPayload(ALICE_UID, "bills"),
+      adminFlag: true,
+    })
+  );
+
+  // Action: Toggle active state succeeds
+  await assertSucceeds(
+    recCol.doc("sub_cloud").update({
+      active: false,
+      updatedAt: pastDate(1000),
+    })
+  );
+
+  // Action: Advance nextDueEpochDay succeeds
+  await assertSucceeds(
+    recCol.doc("sub_cloud").update({
+      nextDueEpochDay: 20810,
+      updatedAt: pastDate(500),
+    })
+  );
+
+  // Action: Switch between subscription and recurring succeeds
+  await assertSucceeds(
+    recCol.doc("sub_cloud").update({
+      kind: "recurring",
+      cadence: "yearly",
+      amount: 99.0,
+      updatedAt: pastDate(200),
+    })
+  );
+
+  // Cross-user read/delete blocked
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  await assertFails(
+    bobDb.collection("users").doc(ALICE_UID).collection("recurring").doc("sub_cloud").get()
+  );
+  await assertFails(
+    bobDb.collection("users").doc(ALICE_UID).collection("recurring").doc("sub_cloud").delete()
+  );
+
+  // Owner delete succeeds
+  await assertSucceeds(recCol.doc("sub_cloud").delete());
+});
+
