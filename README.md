@@ -15,7 +15,7 @@
 ![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203%20Expressive-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white)
 
 <p>
-  <strong>A personal budgeting app crafted for Pixel & Android users with Material 3 Expressive motion, live spend pacing, custom budget cycles, and offline-first speed.</strong>
+  <strong>A personal budgeting app crafted for Pixel & Android users with Material 3 Expressive motion, live spend pacing, recurring bills & subscriptions, multi-period insights, and offline-first speed.</strong>
 </p>
 
 <p>
@@ -51,19 +51,20 @@ Grab the latest installable Android package directly from **GitHub Releases**:
 
 | Area | What You Get |
 | :--- | :--- |
-| **🏠 Expressive Dashboard** | Hero remaining-budget squircle, live **Spend Pace** card with animated wavy progress indicator, **Safe / day** allowance, and expandable **Top Categories** bento tiles. |
-| **🎯 Flexible Budgets** | Tune monthly category limits with tactile sliders, create custom categories with 17 curated icons & 10 accent swatches, and switch reset days (**1st–31st**) to match your payday. |
-| **⚡ Fast Expense Entry** | Custom numeric keypad bottom sheet with quick **Today / Yesterday** pills, full calendar picker, and instant category selection. |
-| **📊 Interactive Insights** | Tap-and-drag scrubbable daily spending chart (**7D / 14D / 30D**) with daily average reference line and proportional **Category Mix** breakdown. |
-| **🧾 Activity & Search** | Day-grouped transaction log with real-time merchant/category search, category filter chips, and swipe-to-delete with **Undo** snackbar. |
-| **🌍 Global & Adaptive** | Searchable catalog of **150+ world currencies** (ISO 4217), **Light / Dark / Device** themes, and **Material You** wallpaper dynamic colors (Android 12+). |
-| **🔒 Local-First + Cloud Sync** | Instant offline persistence via **Room**, plus optional **Google Sign-In** (Credential Manager + Firebase Auth) to sync and migrate data securely to **Cloud Firestore**. |
+| **🏠 Expressive Dashboard** | Hero remaining-budget squircle, live **Spend Pace** card with animated wavy progress indicator, **Safe / day** allowance (with optional upcoming bills reservation), and expandable **Top Categories** bento tiles. |
+| **🔁 Recurring Bills & Subscriptions** | Track recurring bills and subscriptions across **weekly, biweekly, monthly, or yearly** cycles with due-date countdowns, active/paused toggles, and one-tap **Log paid**. |
+| **🎯 Flexible Budgets** | Tune monthly category limits with tactile sliders, set custom warning thresholds (`55%–95%`), create custom categories with 17 curated icons & 10 accent swatches, and pick any reset day (**1st–31st**). |
+| **⚡ Fast Expense Entry** | Custom numeric keypad bottom sheet with **One-time / Recurring / Subscription** entry modes, quick **Today / Yesterday** pills, and full calendar picker. |
+| **📊 4-Mode Interactive Insights** | Switch between **Trends** (7D / 14D / 30D scrubbable daily bar chart), **Monthly** (6M/12M history, side-by-side month comparison & cumulative pace), **Yearly** (YoY category comparison), and **Mix** (fixed vs. flexible split, weekday pattern & top expenses). |
+| **🧾 Activity, Search & Export** | Day-grouped transaction log with real-time merchant/category search, category filter chips, swipe-to-delete with **Undo** snackbar, and **CSV spreadsheet export**. |
+| **📱 Built for Pixel Feel** | High refresh rate Smooth Display support, Android Predictive Back (`enableOnBackInvokedCallback`), **Material You** wallpaper colors, **Light / Dark / Device** themes, **150+ world currencies**, compact card density, haptics, and reduce-motion accessibility. |
+| **🔒 Local-First + Cloud Sync** | Instant offline persistence via **Room**, plus optional **Google Sign-In** (Credential Manager + Firebase Auth) to sync and migrate categories, transactions, and recurring schedules to **Cloud Firestore**. |
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **Language & UI:** Kotlin `2.4.21`, Jetpack Compose, Material 3 Expressive (`Outfit` + `Plus Jakarta Sans` typography, custom spring motion tokens)
+- **Language & UI:** Kotlin `2.4.21`, Jetpack Compose, Material 3 Expressive (`Outfit` + `Plus Jakarta Sans` typography, custom spring motion tokens, high refresh rate & predictive back)
 - **Local Storage:** AndroidX Room `2.7.0` (`PixelFundsLocalDatabase`) & Jetpack DataStore Preferences `1.1.7`
 - **Cloud & Auth (Optional):** Firebase Auth, Cloud Firestore (owner-isolated security rules), Android Credential Manager (`googleid`)
 - **Build & Tooling:** Gradle `9.3.1`, Android Gradle Plugin `9.1.1`, KSP, Secrets Gradle Plugin
@@ -85,19 +86,19 @@ Pixel-Funds/
 │   └── src/
 │       ├── main/
 │       │   ├── java/com/example/
-│       │   │   ├── MainActivity.kt              # Edge-to-edge, theme, & auth session router
+│       │   │   ├── MainActivity.kt              # Edge-to-edge, smooth display, theme, & auth router
 │       │   │   ├── data/
 │       │   │   │   ├── AppPreferences.kt        # DataStore prefs & ISO 4217 currency catalog
 │       │   │   │   ├── BudgetRepository.kt      # Repository abstraction & starter seed data
-│       │   │   │   ├── CadenceModels.kt         # Domain models & timezone-safe LocalDay
+│       │   │   │   ├── CadenceModels.kt         # Domain models, RecurringItem & LocalDay math
 │       │   │   │   ├── CadenceRepository.kt     # Cloud Firestore sync & local migration
 │       │   │   │   └── local/                   # Room entities, DAO, & LocalBudgetRepository
 │       │   │   └── ui/
-│       │   │       ├── CadenceApp.kt            # Navigation shell & shared-element overlay
-│       │   │       ├── CadenceViewModel.kt      # Reactive UI state & unidirectional events
+│       │   │       ├── CadenceApp.kt            # Navigation shell, settings overlay & transitions
+│       │   │       ├── CadenceViewModel.kt      # Reactive UI state, CSV export & events
 │       │   │       ├── auth/                    # Credential Manager Google Sign-In flow
-│       │   │       ├── components/              # WavyProgressIndicator, FloatingPillToolbar
-│       │   │       ├── screens/                 # Dashboard, Budgets, Activity, Insights, Sheets
+│       │   │       ├── components/              # WavyProgressIndicator, FloatingPillToolbar, Haptics
+│       │   │       ├── screens/                 # Dashboard, Budgets, Activity, Recurring, Insights, Settings
 │       │   │       └── theme/                   # Color palettes, ExpressiveMotion, Typography
 │       │   └── res/                             # Fonts, Material icons, strings, Firebase config
 │       └── test/                                # JVM & Robolectric unit tests
