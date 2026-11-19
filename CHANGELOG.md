@@ -16,8 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Issue templates, pull request template, and Dependabot configuration.
 
 ### Fixed
+- Fixed immediate startup crash when `google-services.json` is absent by guarding `FirebaseAuth` initialization in `MainActivity.kt`, `AuthScreen.kt`, and `FirestoreErrorHandler.kt`, plus wrapping display refresh setup safely.
 - Resolved `default_web_client_id` dynamically in `AuthScreen.kt` so builds succeed when `google-services.json` is not present.
-- Updated `ExampleRobolectricTest` to expect `"Pixel Funds"` for `R.string.app_name`.
+- Updated `ExampleRobolectricTest` to assert `"Pixel Funds"` for `R.string.app_name` and verify `MainActivity` launches cleanly in local mode without Firebase config.
 
 ---
 
