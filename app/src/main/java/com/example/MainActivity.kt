@@ -4,10 +4,13 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -26,7 +29,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.example.data.AppPreferencesRepository
+import com.example.data.AppThemeMode
 import com.example.data.CadenceRepository
+import com.example.data.UserPreferences
 import com.example.data.local.LocalBudgetRepository
 import com.example.ui.CadenceApp
 import com.example.ui.CadenceViewModel
@@ -45,9 +51,47 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val preferencesRepository = AppPreferencesRepository(applicationContext)
+
         setContent {
-            CadenceTheme {
-                PixelFundsRootNavigation()
+            val prefs by preferencesRepository.preferencesFlow.collectAsStateWithLifecycle(
+                initialValue = UserPreferences(),
+            )
+            val systemDark = isSystemInDarkTheme()
+            val darkTheme = when (prefs.themeMode) {
+                AppThemeMode.LIGHT -> false
+                AppThemeMode.DARK -> true
+                AppThemeMode.ADAPTIVE_DEVICE -> systemDark
+            }
+            val dynamicColor = when (prefs.themeMode) {
+                AppThemeMode.ADAPTIVE_DEVICE -> true
+                AppThemeMode.LIGHT, AppThemeMode.DARK -> prefs.dynamicColorInManualTheme
+            }
+
+            DisposableEffect(darkTheme) {
+                enableEdgeToEdge(
+                    statusBarStyle = if (darkTheme) {
+                        SystemBarStyle.dark(Color.TRANSPARENT)
+                    } else {
+                        SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+                    },
+                    navigationBarStyle = if (darkTheme) {
+                        SystemBarStyle.dark(Color.TRANSPARENT)
+                    } else {
+                        SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+                    },
+                )
+                onDispose {}
+            }
+
+            CadenceTheme(
+                darkTheme = darkTheme,
+                dynamicColor = dynamicColor,
+                currency = prefs.currency,
+            ) {
+                PixelFundsRootNavigation(
+                    preferencesRepository = preferencesRepository,
+                )
             }
         }
     }
@@ -62,7 +106,10 @@ private fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
 }
 
 @Composable
-private fun PixelFundsRootNavigation(auth: FirebaseAuth = Firebase.auth) {
+private fun PixelFundsRootNavigation(
+    preferencesRepository: AppPreferencesRepository,
+    auth: FirebaseAuth = Firebase.auth,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val credentialManager = remember(context) { CredentialManager.create(context) }
@@ -103,7 +150,10 @@ private fun PixelFundsRootNavigation(auth: FirebaseAuth = Firebase.auth) {
                     } else {
                         localRepository
                     }
-                    CadenceViewModel(repository = repository)
+                    CadenceViewModel(
+                        repository = repository,
+                        preferencesRepository = preferencesRepository,
+                    )
                 }
             },
         )

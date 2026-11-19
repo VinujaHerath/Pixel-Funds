@@ -60,14 +60,52 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.sin
 
-fun formatCurrency(amount: Double, showCents: Boolean = true): String {
+import androidx.compose.runtime.compositionLocalOf
+import com.example.data.CurrencyOption
+import com.example.data.WorldCurrencyCatalog
+
+val LocalAppCurrency = compositionLocalOf { WorldCurrencyCatalog.defaultCurrency() }
+
+fun formatCurrencyValue(
+    amount: Double,
+    currency: CurrencyOption,
+    showCents: Boolean = true,
+    compact: Boolean = false,
+): String {
     val sign = if (amount < 0) "-" else ""
     val value = abs(amount)
-    return if (showCents) {
-        "$sign$${String.format(Locale.US, "%,.2f", value)}"
-    } else {
-        "$sign$${String.format(Locale.US, "%,.0f", value)}"
+    val prefix = if (currency.usesTightPrefix) currency.symbol else "${currency.symbol} "
+
+    if (compact) {
+        val compactNum = when {
+            value >= 1_000_000.0 -> {
+                val m = value / 1_000_000.0
+                if (m >= 10.0 || m % 1.0 == 0.0) String.format(Locale.US, "%.0fM", m)
+                else String.format(Locale.US, "%.1fM", m)
+            }
+            value >= 1_000.0 -> {
+                val k = value / 1_000.0
+                if (k >= 10.0 || k % 1.0 == 0.0) String.format(Locale.US, "%.0fK", k)
+                else String.format(Locale.US, "%.1fK", k)
+            }
+            else -> String.format(Locale.US, "%,.0f", value)
+        }
+        return "$sign$prefix$compactNum"
     }
+
+    val decimals = if (showCents) currency.fractionDigits else 0
+    val formatted = when (decimals) {
+        0 -> String.format(Locale.US, "%,.0f", value)
+        3 -> String.format(Locale.US, "%,.3f", value)
+        else -> String.format(Locale.US, "%,.2f", value)
+    }
+    return "$sign$prefix$formatted"
+}
+
+@Composable
+fun formatCurrency(amount: Double, showCents: Boolean = true): String {
+    val currency = LocalAppCurrency.current
+    return formatCurrencyValue(amount = amount, currency = currency, showCents = showCents)
 }
 
 /**

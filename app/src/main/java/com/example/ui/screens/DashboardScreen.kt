@@ -28,7 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CalendarToday
-import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.TrendingDown
 import androidx.compose.material.icons.rounded.TrendingUp
 import androidx.compose.material3.AlertDialog
@@ -78,14 +78,23 @@ fun DashboardScreen(
     onViewAllActivity: () -> Unit,
     onOpenAccount: () -> Unit,
     onClearSampleData: () -> Unit,
+    onChangeResetDay: (Int) -> Unit,
 ) {
     val haptics = LocalHapticFeedback.current
-    val monthLabel = remember(state.today) { state.today.monthFullName() }
     var showCycleInfoDialog by remember { mutableStateOf(false) }
+    var showResetDayPicker by remember { mutableStateOf(false) }
 
     if (showCycleInfoDialog) {
-        val nextResetLabel = remember(state.today) { state.today.firstDayOfNextMonth().formatShort() }
-        val monthYearLabel = remember(state.today) { state.today.monthYearFullName() }
+        val nextResetLabel = remember(state.today, state.budgetResetDay) {
+            state.nextResetDate.formatShort()
+        }
+        val cycleHeading = remember(state.today, state.budgetResetDay) {
+            if (state.budgetResetDay == 1) {
+                "${state.today.monthYearFullName()} cycle"
+            } else {
+                "${state.cycleStart.formatShort()} – ${state.cycleEnd.formatShort()} cycle"
+            }
+        }
         AlertDialog(
             onDismissRequest = { showCycleInfoDialog = false },
             shape = RoundedCornerShape(28.dp),
@@ -98,14 +107,14 @@ fun DashboardScreen(
             },
             title = {
                 Text(
-                    text = "$monthYearLabel cycle",
+                    text = cycleHeading,
                     style = MaterialTheme.typography.titleLarge,
                 )
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "${state.daysRemaining} days left in $monthLabel (Day ${state.today.dayOfMonth} of ${state.today.lengthOfMonth()}).",
+                        text = "${state.daysRemaining} days left in this cycle (Day ${state.cycleDayElapsed} of ${state.cycleTotalDays}).",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -122,6 +131,17 @@ fun DashboardScreen(
                     )
                 }
             },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showCycleInfoDialog = false
+                        showResetDayPicker = true
+                    },
+                    modifier = Modifier.testTag("cycle_info_change_reset_button"),
+                ) {
+                    Text(stringResource(R.string.dashboard_cycle_change_reset_day))
+                }
+            },
             confirmButton = {
                 TextButton(
                     onClick = { showCycleInfoDialog = false },
@@ -129,6 +149,17 @@ fun DashboardScreen(
                 ) {
                     Text(stringResource(R.string.dashboard_cycle_dialog_got_it))
                 }
+            },
+        )
+    }
+
+    if (showResetDayPicker) {
+        ResetDayPickerDialog(
+            currentDay = state.budgetResetDay,
+            onDismiss = { showResetDayPicker = false },
+            onSelectDay = { day ->
+                onChangeResetDay(day)
+                showResetDayPicker = false
             },
         )
     }
@@ -151,7 +182,7 @@ fun DashboardScreen(
             ) {
                 Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                     Text(
-                        text = "$monthLabel Budget",
+                        text = state.budgetPeriodTitle,
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -218,7 +249,7 @@ fun DashboardScreen(
                                 )
                             } else {
                                 Icon(
-                                    imageVector = Icons.Rounded.Person,
+                                    imageVector = Icons.Rounded.Settings,
                                     contentDescription = stringResource(R.string.cd_account),
                                     tint = MaterialTheme.colorScheme.onSecondaryContainer,
                                 )
@@ -354,7 +385,7 @@ fun DashboardScreen(
 
         // 4. Top Categories 2x2 Bento Grid
         item(key = "top_categories_grid") {
-            val topCategories = remember(state.categories, state.transactions, state.today) {
+            val topCategories = remember(state.categories, state.transactions, state.today, state.budgetResetDay) {
                 state.categories
                     .sortedByDescending { state.spentForCategoryThisMonth(it.id) }
                     .take(4)
@@ -525,7 +556,7 @@ private fun SpendPaceBentoCard(
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    text = "Day ${state.today.dayOfMonth} of ${state.today.lengthOfMonth()} (${(state.monthElapsedRatio * 100).toInt()}%)",
+                    text = "Day ${state.cycleDayElapsed} of ${state.cycleTotalDays} (${(state.monthElapsedRatio * 100).toInt()}%)",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

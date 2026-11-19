@@ -69,6 +69,7 @@ import com.example.R
 import com.example.data.BudgetCategory
 import com.example.data.LocalDay
 import com.example.data.Transaction
+import com.example.ui.components.LocalAppCurrency
 import com.example.ui.components.formatCurrency
 import com.example.ui.theme.ExpressiveMotion
 import java.util.Locale
@@ -134,12 +135,13 @@ fun ExpenseEntryBottomSheet(
                     .padding(vertical = 4.dp),
                 contentAlignment = Alignment.Center,
             ) {
+                val currency = LocalAppCurrency.current
                 Row(verticalAlignment = Alignment.Top) {
                     Text(
-                        text = "$",
+                        text = currency.symbol,
                         style = MaterialTheme.typography.headlineMedium,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(top = 8.dp, end = 2.dp),
+                        modifier = Modifier.padding(top = 8.dp, end = if (currency.usesTightPrefix) 2.dp else 6.dp),
                     )
                     AnimatedContent(
                         targetState = displayAmount,

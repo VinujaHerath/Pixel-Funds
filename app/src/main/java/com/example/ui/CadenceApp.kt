@@ -32,28 +32,18 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.CloudDone
-import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.Smartphone
-import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -61,7 +51,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -86,7 +75,6 @@ import com.example.data.BudgetCategory
 import com.example.data.CadenceTab
 import com.example.data.Transaction
 import com.example.data.WorkspaceLoadState
-import com.example.ui.auth.onGoogleSignInClicked
 import com.example.ui.auth.signOut
 import com.example.ui.components.FloatingPillToolbar
 import com.example.ui.components.WavyProgressIndicator
@@ -96,9 +84,9 @@ import com.example.ui.screens.CategoryEditorBottomSheet
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.ExpenseEntryBottomSheet
 import com.example.ui.screens.InsightsScreen
+import com.example.ui.screens.SettingsBottomSheet
 import com.example.ui.screens.TransactionsScreen
 import com.example.ui.theme.ExpressiveMotion
-import com.example.ui.theme.LocalFinancialColors
 import com.example.ui.theme.budgetStatusPalette
 import com.google.firebase.auth.FirebaseUser
 
@@ -109,6 +97,7 @@ fun CadenceApp(
     signedInUser: FirebaseUser?,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val userPreferences by viewModel.userPreferences.collectAsStateWithLifecycle()
     var activeTab by remember { mutableStateOf(CadenceTab.Home) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -295,6 +284,7 @@ fun CadenceApp(
                                             onViewAllActivity = { activeTab = CadenceTab.Activity },
                                             onOpenAccount = viewModel::openAccountSheet,
                                             onClearSampleData = viewModel::clearSampleData,
+                                            onChangeResetDay = viewModel::updateBudgetResetDay,
                                         )
 
                                         CadenceTab.Budgets -> BudgetsScreen(
@@ -383,13 +373,19 @@ fun CadenceApp(
     }
 
     if (uiState.isAccountSheetOpen) {
-        AccountSyncBottomSheet(
+        SettingsBottomSheet(
+            preferences = userPreferences,
             isCloudSignedIn = isCloudSignedIn,
             displayName = userDisplayName,
             email = userEmail,
             hasSampleData = uiState.hasSampleData,
             isBusy = uiState.isMutating,
+            credentialManager = credentialManager,
             onDismiss = viewModel::dismissAccountSheet,
+            onSelectResetDay = viewModel::updateBudgetResetDay,
+            onSelectCurrency = viewModel::updateCurrencyCode,
+            onSelectThemeMode = viewModel::updateThemeMode,
+            onToggleDynamicColorInManualTheme = viewModel::updateDynamicColorInManualTheme,
             onClearSampleData = viewModel::clearSampleData,
             onRestoreSampleData = viewModel::restoreSampleData,
             onSignInSuccess = {
@@ -399,7 +395,6 @@ fun CadenceApp(
                 viewModel.dismissAccountSheet()
                 signOut(credentialManager = credentialManager, scope = scope)
             },
-            credentialManager = credentialManager,
         )
     }
 }
@@ -520,256 +515,6 @@ private fun CategoryExpandedDetailOverlay(
                             }
                         }
                     }
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun AccountSyncBottomSheet(
-    isCloudSignedIn: Boolean,
-    displayName: String,
-    email: String,
-    hasSampleData: Boolean,
-    isBusy: Boolean,
-    credentialManager: CredentialManager,
-    onDismiss: () -> Unit,
-    onClearSampleData: () -> Unit,
-    onRestoreSampleData: () -> Unit,
-    onSignInSuccess: () -> Unit,
-    onSignOut: () -> Unit,
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val finColors = LocalFinancialColors.current
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val haptics = LocalHapticFeedback.current
-
-    var isSigningIn by remember { mutableStateOf(false) }
-    var authError by remember { mutableStateOf<String?>(null) }
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp),
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        dragHandle = { BottomSheetDefaults.DragHandle() },
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.account_title),
-                    style = MaterialTheme.typography.headlineMedium,
-                )
-                Surface(
-                    shape = CircleShape,
-                    color = if (isCloudSignedIn) finColors.healthyContainer
-                    else MaterialTheme.colorScheme.secondaryContainer,
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Icon(
-                            imageVector = if (isCloudSignedIn) Icons.Rounded.CloudDone else Icons.Rounded.Smartphone,
-                            contentDescription = null,
-                            tint = if (isCloudSignedIn) finColors.onHealthyContainer
-                            else MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Text(
-                            text = if (isCloudSignedIn) stringResource(R.string.account_synced_badge)
-                            else stringResource(R.string.account_local_badge),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = if (isCloudSignedIn) finColors.onHealthyContainer
-                            else MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                    }
-                }
-            }
-
-            if (isCloudSignedIn) {
-                Surface(
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(displayName, style = MaterialTheme.typography.titleMedium)
-                        if (email.isNotBlank()) {
-                            Text(
-                                text = email,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            } else {
-                // Local Mode Card + Optional Google Sign-In CTA
-                Surface(
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Text(
-                            text = stringResource(R.string.account_local_title),
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Text(
-                            text = stringResource(R.string.account_local_subtitle),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        if (authError != null) {
-                            Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = MaterialTheme.colorScheme.errorContainer,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text(
-                                    text = authError!!,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                )
-                            }
-                        }
-                        Button(
-                            onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                authError = null
-                                isSigningIn = true
-                                onGoogleSignInClicked(
-                                    context = context,
-                                    credentialManager = credentialManager,
-                                    onAuthSuccess = {
-                                        isSigningIn = false
-                                        onSignInSuccess()
-                                    },
-                                    onAuthError = { msg ->
-                                        isSigningIn = false
-                                        authError = msg
-                                    },
-                                    scope = scope,
-                                    onAuthCancelled = {
-                                        isSigningIn = false
-                                    },
-                                )
-                            },
-                            enabled = !isSigningIn && !isBusy,
-                            shape = CircleShape,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(54.dp)
-                                .testTag("google_sign_in_button"),
-                        ) {
-                            if (isSigningIn) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                    strokeWidth = 2.dp,
-                                )
-                                Spacer(Modifier.width(10.dp))
-                                Text(
-                                    text = stringResource(R.string.auth_signing_in),
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
-                            } else {
-                                Icon(Icons.Rounded.CloudUpload, contentDescription = null)
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    text = stringResource(R.string.auth_sign_in_google),
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Sample Data Management Tile
-            Surface(
-                onClick = {
-                    if (!isBusy && !isSigningIn) {
-                        if (hasSampleData) onClearSampleData() else onRestoreSampleData()
-                    }
-                },
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("sample_data_action_button"),
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.secondaryContainer),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = if (hasSampleData) Icons.Rounded.CleaningServices else Icons.Rounded.AutoAwesome,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = if (hasSampleData) stringResource(R.string.account_clear_sample_title)
-                            else stringResource(R.string.account_load_sample_title),
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Text(
-                            text = if (hasSampleData) stringResource(R.string.account_clear_sample_subtitle)
-                            else stringResource(R.string.account_load_sample_subtitle),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-
-            if (isCloudSignedIn) {
-                Spacer(Modifier.height(4.dp))
-                OutlinedButton(
-                    onClick = onSignOut,
-                    enabled = !isBusy,
-                    shape = CircleShape,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(54.dp)
-                        .testTag("sign_out_button"),
-                ) {
-                    Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(R.string.account_sign_out),
-                        style = MaterialTheme.typography.titleMedium,
-                    )
                 }
             }
         }

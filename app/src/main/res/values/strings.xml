@@ -23,6 +23,7 @@
     <string name="dashboard_sample_banner">Showing sample transactions so you can explore Pixel Funds.</string>
     <string name="dashboard_clear_sample">Clear</string>
     <string name="dashboard_cycle_dialog_got_it">Got it</string>
+    <string name="dashboard_cycle_change_reset_day">Change reset day</string>
     <string name="dashboard_cycle_synced_note">Synced to your device date — your monthly budget resets automatically on %1$s.</string>
     <string name="dashboard_cycle_safe_note">Your Safe / day allowance divides your remaining budget across the %1$d remaining days (including today).</string>
     <string name="cd_month_cycle_info">Days left in current monthly budget cycle</string>
@@ -45,7 +46,7 @@
     <string name="category_sheet_create_title">Create category</string>
     <string name="category_sheet_edit_title">Edit category</string>
     <string name="category_name_placeholder">Category name (e.g. Travel)</string>
-    <string name="category_limit_placeholder">Monthly limit ($)</string>
+    <string name="category_limit_placeholder">Monthly limit (%1$s)</string>
     <string name="category_pick_icon">Choose icon</string>
     <string name="category_pick_color">Accent color</string>
     <string name="category_save">Save category</string>
@@ -61,11 +62,41 @@
 
     <!-- Insights -->
     <string name="insights_title">Insights</string>
-    <string name="insights_drag_to_scrub">Drag chart to scrub</string>
+    <string name="insights_drag_to_scrub">Tap or drag</string>
+    <string name="insights_daily_avg">Daily avg</string>
+    <string name="insights_peak_day">Peak day</string>
+    <string name="insights_legend_daily">Daily spend</string>
+    <string name="insights_legend_avg">Daily avg</string>
+    <string name="insights_no_expenses_day">No expenses</string>
+    <string name="insights_one_expense_day">1 expense</string>
+    <string name="insights_many_expenses_day">%1$d expenses</string>
     <string name="insights_category_mix">Category mix</string>
     <string name="insights_empty_mix">Log expenses to see your spending mix here.</string>
 
-    <!-- Account & Local Mode Sheet -->
+    <!-- Settings, Account & Preferences -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_appearance_title">Appearance</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_theme_device">Device</string>
+    <string name="settings_theme_light_desc">Always use clean light mode.</string>
+    <string name="settings_theme_dark_desc">Always use rich dark mode.</string>
+    <string name="settings_theme_device_desc">Adapts to your device light/dark mode and Material You wallpaper colors.</string>
+    <string name="settings_dynamic_color_title">Adapt to device colors</string>
+    <string name="settings_dynamic_color_subtitle">Blend app accents with your wallpaper palette</string>
+    <string name="settings_reset_day_title">Budget reset day</string>
+    <string name="settings_reset_day_default">1st of every month (default)</string>
+    <string name="settings_reset_day_custom">%1$s of every month</string>
+    <string name="settings_reset_day_picker_title">Budget reset day</string>
+    <string name="settings_reset_day_picker_subtitle">Resets on the %1$s of each month</string>
+    <string name="settings_reset_day_note">Shorter months automatically adjust to their last day (for example, Feb 28/29).</string>
+    <string name="settings_reset_to_first">Default (1st)</string>
+    <string name="settings_save_day">Save</string>
+    <string name="settings_currency_title">Currency</string>
+    <string name="settings_currency_picker_title">Choose currency</string>
+    <string name="settings_currency_count">%1$d world currencies available</string>
+    <string name="settings_currency_search_hint">Search country, currency, or code (e.g. LKR, EUR)</string>
+    <string name="settings_currency_no_results">No matching currencies found</string>
     <string name="account_title">Account &amp; Sync</string>
     <string name="account_synced_badge">Cloud Sync</string>
     <string name="account_local_badge">On-device</string>
@@ -81,7 +112,7 @@
     <!-- Content Descriptions & Misc -->
     <string name="cd_add_expense">Add expense</string>
     <string name="cd_close">Close</string>
-    <string name="cd_account">Account and sync settings</string>
+    <string name="cd_account">Settings and account</string>
     <string name="cd_delete_digit">Delete digit</string>
     <string name="cd_edit_transaction">Edit transaction</string>
     <string name="cd_delete_transaction">Delete transaction</string>

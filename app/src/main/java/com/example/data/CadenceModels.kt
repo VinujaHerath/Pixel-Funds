@@ -93,6 +93,25 @@ data class LocalDay(
         LocalDay(year = year, month = month + 1, dayOfMonth = 1)
     }
 
+    fun plusMonthsClamped(monthsOffset: Int, desiredDay: Int): LocalDay {
+        val totalMonths = (year * 12 + (month - 1)) + monthsOffset
+        val targetYear = Math.floorDiv(totalMonths, 12)
+        val targetMonth = Math.floorMod(totalMonths, 12) + 1
+        val maxDay = lengthOfMonthFor(targetYear, targetMonth)
+        return LocalDay(
+            year = targetYear,
+            month = targetMonth,
+            dayOfMonth = desiredDay.coerceIn(1, maxDay),
+        )
+    }
+
+    fun dayOfWeekShort(): String {
+        val cal = toUtcCalendar()
+        return SimpleDateFormat("EEE", Locale.getDefault()).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.format(cal.time)
+    }
+
     fun formatShort(): String {
         val cal = toUtcCalendar()
         return SimpleDateFormat("MMM d", Locale.getDefault()).apply {
@@ -156,6 +175,28 @@ data class LocalDay(
                 month = cal.get(Calendar.MONTH) + 1,
                 dayOfMonth = cal.get(Calendar.DAY_OF_MONTH),
             )
+        }
+
+        fun lengthOfMonthFor(year: Int, month: Int): Int = when (month) {
+            1, 3, 5, 7, 8, 10, 12 -> 31
+            4, 6, 9, 11 -> 30
+            2 -> if (isLeapYear(year)) 29 else 28
+            else -> 30
+        }
+
+        fun ordinalDay(day: Int): String {
+            val mod100 = day % 100
+            val suffix = if (mod100 in 11..13) {
+                "th"
+            } else {
+                when (day % 10) {
+                    1 -> "st"
+                    2 -> "nd"
+                    3 -> "rd"
+                    else -> "th"
+                }
+            }
+            return "$day$suffix"
         }
 
         private fun isLeapYear(year: Int): Boolean =
@@ -323,9 +364,51 @@ data class CadenceUiState(
     val isCategorySheetOpen: Boolean = false,
     val isAccountSheetOpen: Boolean = false,
     val today: LocalDay = LocalDay.today(),
+    val budgetResetDay: Int = 1,
+    val currency: CurrencyOption = WorldCurrencyCatalog.defaultCurrency(),
 ) {
+    val cycleStart: LocalDay
+        get() {
+            val resetThisMonth = budgetResetDay.coerceIn(1, today.lengthOfMonth())
+            return if (today.dayOfMonth >= resetThisMonth) {
+                LocalDay(today.year, today.month, resetThisMonth)
+            } else {
+                today.plusMonthsClamped(-1, budgetResetDay)
+            }
+        }
+
+    val nextResetDate: LocalDay
+        get() {
+            val resetThisMonth = budgetResetDay.coerceIn(1, today.lengthOfMonth())
+            return if (today.dayOfMonth >= resetThisMonth) {
+                today.plusMonthsClamped(1, budgetResetDay)
+            } else {
+                LocalDay(today.year, today.month, resetThisMonth)
+            }
+        }
+
+    val cycleEnd: LocalDay
+        get() = nextResetDate.minusDays(1)
+
+    val cycleTotalDays: Int
+        get() = (nextResetDate.toEpochDay() - cycleStart.toEpochDay()).toInt().coerceAtLeast(1)
+
+    val cycleDayElapsed: Int
+        get() = ((today.toEpochDay() - cycleStart.toEpochDay()).toInt() + 1).coerceIn(1, cycleTotalDays)
+
+    val budgetPeriodTitle: String
+        get() = if (budgetResetDay == 1) {
+            "${today.monthFullName()} Budget"
+        } else {
+            "${cycleStart.formatShort()} – ${cycleEnd.formatShort()} Budget"
+        }
+
     val currentMonthTransactions: List<Transaction>
-        get() = transactions.filter { it.date.isSameMonth(today) }
+        get() {
+            val start = cycleStart
+            val next = nextResetDate
+            return transactions.filter { it.date >= start && it.date < next }
+        }
 
     val totalMonthlyBudget: Double
         get() = categories.sumOf { it.monthlyLimit }
@@ -340,10 +423,10 @@ data class CadenceUiState(
         get() = if (totalMonthlyBudget > 0.0) (totalSpentThisMonth / totalMonthlyBudget).toFloat() else 0f
 
     val monthElapsedRatio: Float
-        get() = (today.dayOfMonth.toFloat() / today.lengthOfMonth().toFloat()).coerceIn(0.03f, 1f)
+        get() = (cycleDayElapsed.toFloat() / cycleTotalDays.toFloat()).coerceIn(0.03f, 1f)
 
     val daysRemaining: Int
-        get() = (today.lengthOfMonth() - today.dayOfMonth + 1).coerceAtLeast(1)
+        get() = (nextResetDate.toEpochDay() - today.toEpochDay()).toInt().coerceAtLeast(1)
 
     val safeDailySpend: Double
         get() = (remainingBudget / daysRemaining).coerceAtLeast(0.0)

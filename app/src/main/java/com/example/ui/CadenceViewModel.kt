@@ -3,11 +3,14 @@ package com.example.ui
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.AppPreferencesRepository
+import com.example.data.AppThemeMode
 import com.example.data.BudgetCategory
 import com.example.data.BudgetRepository
 import com.example.data.CadenceUiState
 import com.example.data.LocalDay
 import com.example.data.Transaction
+import com.example.data.UserPreferences
 import com.example.data.WorkspaceLoadState
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
@@ -55,6 +58,7 @@ private sealed interface DataWorkspaceState {
 @OptIn(ExperimentalCoroutinesApi::class)
 class CadenceViewModel(
     private val repository: BudgetRepository,
+    private val preferencesRepository: AppPreferencesRepository,
 ) : ViewModel() {
 
     private val refreshTrigger = MutableStateFlow(0)
@@ -62,6 +66,13 @@ class CadenceViewModel(
     private val currentDay = MutableStateFlow(LocalDay.today())
     private val _events = MutableSharedFlow<CadenceEvent>(extraBufferCapacity = 4)
     val events: SharedFlow<CadenceEvent> = _events.asSharedFlow()
+
+    val userPreferences: StateFlow<UserPreferences> = preferencesRepository.preferencesFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000L),
+            initialValue = UserPreferences(),
+        )
 
     private var lastDeletedTransaction: Transaction? = null
 
@@ -110,7 +121,8 @@ class CadenceViewModel(
         remoteState,
         localControls,
         currentDay,
-    ) { data, controls, today ->
+        userPreferences,
+    ) { data, controls, today, prefs ->
         when (data) {
             DataWorkspaceState.Loading -> CadenceUiState(
                 loadState = WorkspaceLoadState.Loading,
@@ -124,6 +136,8 @@ class CadenceViewModel(
                 isCategorySheetOpen = controls.isCategorySheetOpen,
                 isAccountSheetOpen = controls.isAccountSheetOpen,
                 today = today,
+                budgetResetDay = prefs.budgetResetDay,
+                currency = prefs.currency,
             )
 
             is DataWorkspaceState.Error -> CadenceUiState(
@@ -131,6 +145,8 @@ class CadenceViewModel(
                 isMutating = controls.isMutating,
                 isAccountSheetOpen = controls.isAccountSheetOpen,
                 today = today,
+                budgetResetDay = prefs.budgetResetDay,
+                currency = prefs.currency,
             )
 
             is DataWorkspaceState.Success -> {
@@ -154,6 +170,8 @@ class CadenceViewModel(
                     isCategorySheetOpen = controls.isCategorySheetOpen,
                     isAccountSheetOpen = controls.isAccountSheetOpen,
                     today = today,
+                    budgetResetDay = prefs.budgetResetDay,
+                    currency = prefs.currency,
                 )
             }
         }
@@ -167,6 +185,35 @@ class CadenceViewModel(
         val freshToday = LocalDay.today()
         if (currentDay.value != freshToday) {
             currentDay.value = freshToday
+        }
+    }
+
+    fun updateBudgetResetDay(day: Int) {
+        val clamped = day.coerceIn(1, 31)
+        viewModelScope.launch {
+            preferencesRepository.setBudgetResetDay(clamped)
+            _events.emit(
+                CadenceEvent.ShowMessage("Budget resets on the ${LocalDay.ordinalDay(clamped)} of each month")
+            )
+        }
+    }
+
+    fun updateCurrencyCode(code: String) {
+        viewModelScope.launch {
+            preferencesRepository.setCurrencyCode(code)
+            _events.emit(CadenceEvent.ShowMessage("Currency changed to $code"))
+        }
+    }
+
+    fun updateThemeMode(mode: AppThemeMode) {
+        viewModelScope.launch {
+            preferencesRepository.setThemeMode(mode)
+        }
+    }
+
+    fun updateDynamicColorInManualTheme(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesRepository.setDynamicColorInManualTheme(enabled)
         }
     }
 

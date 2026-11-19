@@ -77,6 +77,7 @@ import com.example.data.BudgetCategory
 import com.example.data.CadenceUiState
 import com.example.data.CategoryColorPalette
 import com.example.data.CategoryIconCatalog
+import com.example.ui.components.LocalAppCurrency
 import com.example.ui.components.WavyProgressIndicator
 import com.example.ui.components.formatCurrency
 import com.example.ui.theme.ExpressiveMotion
@@ -403,17 +404,18 @@ fun CategoryEditorBottomSheet(
                 ),
             )
 
-            OutlinedTextField(
-                value = limitText,
-                onValueChange = { input ->
-                    val filtered = input.filter { it.isDigit() || it == '.' }
-                    if (filtered.count { it == '.' } <= 1 && filtered.length <= 9) {
-                        limitText = filtered
-                    }
-                },
-                placeholder = { Text(stringResource(R.string.category_limit_placeholder)) },
-                prefix = { Text("$") },
-                singleLine = true,
+                val currency = LocalAppCurrency.current
+                OutlinedTextField(
+                    value = limitText,
+                    onValueChange = { input ->
+                        val filtered = input.filter { it.isDigit() || it == '.' }
+                        if (filtered.count { it == '.' } <= 1 && filtered.length <= 9) {
+                            limitText = filtered
+                        }
+                    },
+                    placeholder = { Text(stringResource(R.string.category_limit_placeholder, currency.code)) },
+                    prefix = { Text(if (currency.usesTightPrefix) currency.symbol else "${currency.symbol} ") },
+                    singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 shape = RoundedCornerShape(20.dp),
                 modifier = Modifier
