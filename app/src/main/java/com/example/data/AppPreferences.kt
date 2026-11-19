@@ -53,9 +53,18 @@ data class UserPreferences(
     val currencyCode: String = WorldCurrencyCatalog.defaultCurrencyCode(),
     val themeMode: AppThemeMode = AppThemeMode.ADAPTIVE_DEVICE,
     val dynamicColorInManualTheme: Boolean = false,
+    val showDecimals: Boolean = true,
+    val hapticsEnabled: Boolean = true,
+    val reduceMotion: Boolean = false,
+    val warningThresholdPercent: Int = 80,
+    val includeFixedBillsInSafeDaily: Boolean = false,
+    val compactCards: Boolean = false,
 ) {
     val currency: CurrencyOption
         get() = WorldCurrencyCatalog.findByCode(currencyCode)
+
+    val warningThresholdRatio: Float
+        get() = (warningThresholdPercent.coerceIn(55, 95) / 100f)
 }
 
 /**
@@ -63,7 +72,6 @@ data class UserPreferences(
  * enriched with country/region names so users worldwide can search by country, name, symbol, or code.
  */
 object WorldCurrencyCatalog {
-    // Non-circulating ISO codes (precious metals, bond units, testing placeholders)
     private val nonCirculatingCodes = setOf(
         "XAU", "XAG", "XPT", "XPD", "XTS", "XXX", "XDR", "XBA", "XBB", "XBC", "XBD",
         "XSU", "XUA", "XFU", "XFO", "USN", "USS", "BOV", "CLF", "COU", "MXV", "UYI",
@@ -209,6 +217,12 @@ class AppPreferencesRepository(private val context: Context) {
         val CURRENCY_CODE = stringPreferencesKey("currency_code")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val DYNAMIC_COLOR_MANUAL = booleanPreferencesKey("dynamic_color_manual")
+        val SHOW_DECIMALS = booleanPreferencesKey("show_decimals")
+        val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
+        val REDUCE_MOTION = booleanPreferencesKey("reduce_motion")
+        val WARNING_THRESHOLD = intPreferencesKey("warning_threshold_percent")
+        val INCLUDE_FIXED_BILLS_SAFE = booleanPreferencesKey("include_fixed_bills_safe")
+        val COMPACT_CARDS = booleanPreferencesKey("compact_cards")
     }
 
     val preferencesFlow: Flow<UserPreferences> = context.pixelFundsPrefsDataStore.data
@@ -225,32 +239,54 @@ class AppPreferencesRepository(private val context: Context) {
                 currencyCode = prefs[Keys.CURRENCY_CODE] ?: WorldCurrencyCatalog.defaultCurrencyCode(),
                 themeMode = AppThemeMode.fromStorageKey(prefs[Keys.THEME_MODE]),
                 dynamicColorInManualTheme = prefs[Keys.DYNAMIC_COLOR_MANUAL] ?: false,
+                showDecimals = prefs[Keys.SHOW_DECIMALS] ?: true,
+                hapticsEnabled = prefs[Keys.HAPTICS_ENABLED] ?: true,
+                reduceMotion = prefs[Keys.REDUCE_MOTION] ?: false,
+                warningThresholdPercent = (prefs[Keys.WARNING_THRESHOLD] ?: 80).coerceIn(55, 95),
+                includeFixedBillsInSafeDaily = prefs[Keys.INCLUDE_FIXED_BILLS_SAFE] ?: false,
+                compactCards = prefs[Keys.COMPACT_CARDS] ?: false,
             )
         }
 
     suspend fun setBudgetResetDay(day: Int) {
         val clamped = day.coerceIn(1, 31)
-        context.pixelFundsPrefsDataStore.edit { prefs ->
-            prefs[Keys.BUDGET_RESET_DAY] = clamped
-        }
+        context.pixelFundsPrefsDataStore.edit { it[Keys.BUDGET_RESET_DAY] = clamped }
     }
 
     suspend fun setCurrencyCode(code: String) {
         val normalized = WorldCurrencyCatalog.findByCode(code).code
-        context.pixelFundsPrefsDataStore.edit { prefs ->
-            prefs[Keys.CURRENCY_CODE] = normalized
-        }
+        context.pixelFundsPrefsDataStore.edit { it[Keys.CURRENCY_CODE] = normalized }
     }
 
     suspend fun setThemeMode(mode: AppThemeMode) {
-        context.pixelFundsPrefsDataStore.edit { prefs ->
-            prefs[Keys.THEME_MODE] = mode.storageKey
-        }
+        context.pixelFundsPrefsDataStore.edit { it[Keys.THEME_MODE] = mode.storageKey }
     }
 
     suspend fun setDynamicColorInManualTheme(enabled: Boolean) {
-        context.pixelFundsPrefsDataStore.edit { prefs ->
-            prefs[Keys.DYNAMIC_COLOR_MANUAL] = enabled
-        }
+        context.pixelFundsPrefsDataStore.edit { it[Keys.DYNAMIC_COLOR_MANUAL] = enabled }
+    }
+
+    suspend fun setShowDecimals(enabled: Boolean) {
+        context.pixelFundsPrefsDataStore.edit { it[Keys.SHOW_DECIMALS] = enabled }
+    }
+
+    suspend fun setHapticsEnabled(enabled: Boolean) {
+        context.pixelFundsPrefsDataStore.edit { it[Keys.HAPTICS_ENABLED] = enabled }
+    }
+
+    suspend fun setReduceMotion(enabled: Boolean) {
+        context.pixelFundsPrefsDataStore.edit { it[Keys.REDUCE_MOTION] = enabled }
+    }
+
+    suspend fun setWarningThresholdPercent(percent: Int) {
+        context.pixelFundsPrefsDataStore.edit { it[Keys.WARNING_THRESHOLD] = percent.coerceIn(55, 95) }
+    }
+
+    suspend fun setIncludeFixedBillsInSafeDaily(enabled: Boolean) {
+        context.pixelFundsPrefsDataStore.edit { it[Keys.INCLUDE_FIXED_BILLS_SAFE] = enabled }
+    }
+
+    suspend fun setCompactCards(enabled: Boolean) {
+        context.pixelFundsPrefsDataStore.edit { it[Keys.COMPACT_CARDS] = enabled }
     }
 }

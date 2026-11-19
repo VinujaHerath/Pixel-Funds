@@ -172,6 +172,7 @@ val DarkFinancialColors = FinancialColors(
 )
 
 val LocalFinancialColors = staticCompositionLocalOf { LightFinancialColors }
+val LocalWarningThreshold = staticCompositionLocalOf { 0.80f }
 
 @Immutable
 data class BudgetStatusPalette(
@@ -181,11 +182,15 @@ data class BudgetStatusPalette(
 )
 
 @Composable
-fun budgetStatusPalette(ratio: Float): BudgetStatusPalette {
+fun budgetStatusPalette(
+    ratio: Float,
+    warningThreshold: Float = LocalWarningThreshold.current,
+): BudgetStatusPalette {
     val fin = LocalFinancialColors.current
+    val warn = warningThreshold.coerceIn(0.55f, 0.95f)
     return when {
-        ratio >= 0.95f -> BudgetStatusPalette(fin.danger, fin.dangerContainer, fin.onDangerContainer)
-        ratio >= 0.75f -> BudgetStatusPalette(fin.warning, fin.warningContainer, fin.onWarningContainer)
+        ratio >= 0.98f -> BudgetStatusPalette(fin.danger, fin.dangerContainer, fin.onDangerContainer)
+        ratio >= warn -> BudgetStatusPalette(fin.warning, fin.warningContainer, fin.onWarningContainer)
         else -> BudgetStatusPalette(fin.healthy, fin.healthyContainer, fin.onHealthyContainer)
     }
 }

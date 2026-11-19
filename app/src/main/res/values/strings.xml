@@ -18,6 +18,9 @@
     <string name="dashboard_spending_fast">Spending fast</string>
     <string name="dashboard_spent_label">Spent</string>
     <string name="dashboard_safe_per_day">Safe / day</string>
+    <string name="dashboard_bills_reserved">Bills reserved</string>
+    <string name="dashboard_fixed_commitments">Recurring &amp; Subscriptions</string>
+    <string name="dashboard_manage">Manage</string>
     <string name="dashboard_top_categories">Top categories</string>
     <string name="dashboard_view_activity">Activity</string>
     <string name="dashboard_sample_banner">Showing sample transactions so you can explore Pixel Funds.</string>
@@ -35,6 +38,9 @@
     <string name="entry_yesterday">Yest.</string>
     <string name="entry_set_date">Set</string>
     <string name="entry_cancel">Cancel</string>
+    <string name="entry_one_time">One-time</string>
+    <string name="entry_recurring_helper">Logs today and adds a recurring bill reminder (rent, utilities, transit).</string>
+    <string name="entry_sub_helper">Logs today and tracks this as a subscription (streaming, apps, memberships).</string>
 
     <!-- Budgets & Categories -->
     <string name="budgets_title">Monthly limits</string>
@@ -51,14 +57,47 @@
     <string name="category_pick_color">Accent color</string>
     <string name="category_save">Save category</string>
 
-    <!-- Activity -->
+    <!-- Activity, Recurring & Subscriptions -->
     <string name="activity_title">Activity</string>
+    <string name="activity_tab_transactions">Transactions</string>
+    <string name="activity_tab_bills_subs">Bills &amp; Subs</string>
     <string name="activity_search_placeholder">Search merchants or categories</string>
     <string name="activity_empty_title">No expenses yet</string>
     <string name="activity_empty_subtitle">Tap the + button below to log your first expense in seconds.</string>
     <string name="activity_no_matches_title">No matching activity</string>
     <string name="activity_no_matches_subtitle">Try clearing your search or category filter.</string>
     <string name="activity_undo">Undo</string>
+    <string name="recurring_bills_title">Recurring Bills</string>
+    <string name="recurring_bills_short">Recurring</string>
+    <string name="recurring_bills_hint">Rent, utilities, transit</string>
+    <string name="subscriptions_title">Subscriptions</string>
+    <string name="subscription_singular">Subscription</string>
+    <string name="subscriptions_hint">Streaming, apps, clubs</string>
+    <string name="recurring_total_fixed_label">Total fixed commitments</string>
+    <string name="recurring_add_button">Add</string>
+    <string name="recurring_filter_both">Both</string>
+    <string name="recurring_empty_bills">No recurring bills tracked yet.</string>
+    <string name="recurring_empty_subs">No subscriptions tracked yet.</string>
+    <string name="recurring_add_bill">Add bill</string>
+    <string name="recurring_add_sub">Add sub</string>
+    <string name="recurring_paused">Paused</string>
+    <string name="recurring_overdue">Overdue %1$dd</string>
+    <string name="recurring_due_today">Due today</string>
+    <string name="recurring_due_tomorrow">Due tomorrow</string>
+    <string name="recurring_due_in_days">Due in %1$dd</string>
+    <string name="recurring_log_paid">Log paid</string>
+    <string name="recurring_sheet_create_title">Add scheduled expense</string>
+    <string name="recurring_sheet_edit_title">Edit scheduled expense</string>
+    <string name="recurring_choose_type_label">Choose type</string>
+    <string name="recurring_bill_name_placeholder">Bill name (e.g. Internet, Rent)</string>
+    <string name="recurring_sub_name_placeholder">Subscription (e.g. Spotify, Cloud)</string>
+    <string name="recurring_amount_label">Amount (%1$s)</string>
+    <string name="recurring_frequency_label">Billing cycle</string>
+    <string name="recurring_category_label">Category</string>
+    <string name="recurring_active_label">Active schedule</string>
+    <string name="recurring_active_hint">Include in monthly fixed total &amp; upcoming reminders</string>
+    <string name="recurring_save_button">Save schedule</string>
+    <string name="recurring_delete_button">Remove schedule</string>
 
     <!-- Insights -->
     <string name="insights_title">Insights</string>
@@ -72,10 +111,30 @@
     <string name="insights_many_expenses_day">%1$d expenses</string>
     <string name="insights_category_mix">Category mix</string>
     <string name="insights_empty_mix">Log expenses to see your spending mix here.</string>
+    <string name="insights_weekly_velocity">7-day pace</string>
+    <string name="insights_monthly_history">Monthly history</string>
+    <string name="insights_compare_months_title">Compare months</string>
+    <string name="insights_primary_month">Primary month</string>
+    <string name="insights_compare_against">Compare against</string>
+    <string name="insights_cumulative_pace_title">Cumulative spend pace (Day 1 – 31)</string>
+    <string name="insights_category_comparison">Category breakdown</string>
+    <string name="insights_empty_comparison">No expenses logged in either period yet.</string>
+    <string name="insights_multi_year_totals">Yearly totals</string>
+    <string name="insights_compare_years_title">Compare years</string>
+    <string name="insights_primary_year">Primary year</string>
+    <string name="insights_category_yoy">Year-over-year by category</string>
+    <string name="insights_fixed_vs_flexible">Fixed vs. flexible budget</string>
+    <string name="insights_flexible_label">Flexible</string>
+    <string name="insights_weekday_pattern">Spending by weekday</string>
+    <string name="insights_top_expenses">Largest expenses</string>
 
     <!-- Settings, Account & Preferences -->
     <string name="settings_title">Settings</string>
-    <string name="settings_appearance_title">Appearance</string>
+    <string name="settings_section_account">Cloud sync &amp; account</string>
+    <string name="settings_appearance_title">Appearance &amp; Pixel feel</string>
+    <string name="settings_section_budgeting">Budgeting &amp; localization</string>
+    <string name="settings_section_data">Data &amp; export</string>
+    <string name="settings_section_about">About</string>
     <string name="settings_theme_light">Light</string>
     <string name="settings_theme_dark">Dark</string>
     <string name="settings_theme_device">Device</string>
@@ -84,6 +143,14 @@
     <string name="settings_theme_device_desc">Adapts to your device light/dark mode and Material You wallpaper colors.</string>
     <string name="settings_dynamic_color_title">Adapt to device colors</string>
     <string name="settings_dynamic_color_subtitle">Blend app accents with your wallpaper palette</string>
+    <string name="settings_show_decimals_title">Show cents / decimals</string>
+    <string name="settings_show_decimals_subtitle">Display exact fractional amounts across balances and lists</string>
+    <string name="settings_compact_cards_title">Compact card layout</string>
+    <string name="settings_compact_cards_subtitle">Fit more transactions and bills on screen at once</string>
+    <string name="settings_haptics_title">Pixel tactile haptics</string>
+    <string name="settings_haptics_subtitle">Crisp vibration feedback on numpad, charts, and switches</string>
+    <string name="settings_reduce_motion_title">Reduce motion</string>
+    <string name="settings_reduce_motion_subtitle">Use gentle fades instead of spring slides and waves</string>
     <string name="settings_reset_day_title">Budget reset day</string>
     <string name="settings_reset_day_default">1st of every month (default)</string>
     <string name="settings_reset_day_custom">%1$s of every month</string>
@@ -97,15 +164,29 @@
     <string name="settings_currency_count">%1$d world currencies available</string>
     <string name="settings_currency_search_hint">Search country, currency, or code (e.g. LKR, EUR)</string>
     <string name="settings_currency_no_results">No matching currencies found</string>
+    <string name="settings_reserve_bills_title">Reserve upcoming bills</string>
+    <string name="settings_reserve_bills_subtitle">Subtract upcoming recurring bills &amp; subs from Safe / day</string>
+    <string name="settings_warning_threshold_title">Budget warning threshold</string>
+    <string name="settings_warning_threshold_subtitle">Highlight categories in amber at %1$d%% of limit</string>
+    <string name="settings_export_csv_title">Export transactions (CSV)</string>
+    <string name="settings_export_csv_subtitle">Save %1$d transactions as a spreadsheet file</string>
+    <string name="settings_export_success">Transactions exported to CSV</string>
+    <string name="settings_export_error">Could not export CSV file</string>
+    <string name="settings_clear_all_tx_title">Clear all transactions</string>
+    <string name="settings_clear_all_tx_subtitle">Permanently delete logged expenses while keeping categories</string>
+    <string name="settings_clear_all_confirm_title">Clear all transactions?</string>
+    <string name="settings_clear_all_confirm_body">This will permanently remove all logged transactions from your current workspace. Categories and recurring schedules will stay intact.</string>
+    <string name="settings_clear_all_confirm_action">Clear all</string>
+    <string name="settings_about_summary">%1$d categories • %2$d transactions • %3$d active bills &amp; subs</string>
     <string name="account_title">Account &amp; Sync</string>
     <string name="account_synced_badge">Cloud Sync</string>
     <string name="account_local_badge">On-device</string>
     <string name="account_local_title">Using Pixel Funds locally</string>
     <string name="account_local_subtitle">Your data is saved on this device. Sign in with Google anytime to back up and sync across devices.</string>
-    <string name="account_clear_sample_title">Clear sample transactions</string>
-    <string name="account_clear_sample_subtitle">Removes demo entries while keeping your categories ready</string>
-    <string name="account_load_sample_title">Load sample transactions</string>
-    <string name="account_load_sample_subtitle">Populate demo entries to preview charts and pacing</string>
+    <string name="account_clear_sample_title">Clear sample data</string>
+    <string name="account_clear_sample_subtitle">Removes demo transactions, bills &amp; subs while keeping categories</string>
+    <string name="account_load_sample_title">Load sample data</string>
+    <string name="account_load_sample_subtitle">Populate multi-month demo history, bills &amp; subs</string>
     <string name="account_sign_out">Sign out &amp; use locally</string>
     <string name="account_default_name">Pixel Funds Account</string>
 

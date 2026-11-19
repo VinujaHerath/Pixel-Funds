@@ -58,7 +58,7 @@ val CadenceShapes = Shapes(
 fun CadenceTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
-    currency: com.example.data.CurrencyOption = com.example.data.WorldCurrencyCatalog.defaultCurrency(),
+    preferences: com.example.data.UserPreferences = com.example.data.UserPreferences(),
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
@@ -74,7 +74,11 @@ fun CadenceTheme(
 
     CompositionLocalProvider(
         LocalFinancialColors provides financialColors,
-        com.example.ui.components.LocalAppCurrency provides currency,
+        LocalWarningThreshold provides preferences.warningThresholdRatio,
+        com.example.ui.components.LocalAppCurrency provides preferences.currency,
+        com.example.ui.components.LocalShowDecimals provides preferences.showDecimals,
+        com.example.ui.components.LocalHapticsEnabled provides preferences.hapticsEnabled,
+        com.example.ui.components.LocalReduceMotion provides preferences.reduceMotion,
     ) {
         MaterialTheme(
             colorScheme = colorScheme,

@@ -85,6 +85,34 @@ service cloud.firestore {
              isValidTimestamp(data.updatedAt);
     }
 
+    function isValidRecurringItem(data, userId) {
+      return data.userId is string &&
+             data.userId == userId &&
+             data.userId == request.auth.uid &&
+             isValidId(data.categoryId) &&
+             data.name is string &&
+             data.name.size() >= 1 &&
+             data.name.size() <= 80 &&
+             data.amount is number &&
+             data.amount > 0 &&
+             data.amount <= 1000000 &&
+             data.kind is string &&
+             data.kind.size() >= 1 &&
+             data.kind.size() <= 20 &&
+             data.kind in ['recurring', 'subscription'] &&
+             data.cadence is string &&
+             data.cadence.size() >= 1 &&
+             data.cadence.size() <= 20 &&
+             data.cadence in ['weekly', 'biweekly', 'monthly', 'yearly'] &&
+             data.nextDueEpochDay is int &&
+             data.nextDueEpochDay >= 0 &&
+             data.nextDueEpochDay <= 100000 &&
+             data.active is bool &&
+             data.sample is bool &&
+             data.createdAt is timestamp &&
+             isValidTimestamp(data.updatedAt);
+    }
+
     // User Workspace Metadata
     match /users/{userId} {
       allow get: if isOwner(userId) && isValidId(userId);
@@ -179,6 +207,48 @@ service cloud.firestore {
                          );
 
         allow delete: if isOwner(userId) && isValidId(transactionId);
+      }
+
+      // Recurring Transactions & Subscriptions Subcollection
+      match /recurring/{recurringId} {
+        allow get: if isOwner(userId) && isValidId(recurringId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(recurringId) &&
+                         isValidRecurringItem(incoming(), userId) &&
+                         incoming().keys().hasAll([
+                           'userId', 'categoryId', 'name', 'amount', 'kind',
+                           'cadence', 'nextDueEpochDay', 'active', 'sample', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'categoryId', 'name', 'amount', 'kind',
+                           'cadence', 'nextDueEpochDay', 'active', 'sample', 'createdAt', 'updatedAt'
+                         ]) &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         existsAfter(/databases/$(database)/documents/users/$(userId)/categories/$(incoming().categoryId));
+
+        allow update: if isOwner(userId) &&
+                         isValidId(recurringId) &&
+                         isValidRecurringItem(incoming(), userId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         existsAfter(/databases/$(database)/documents/users/$(userId)/categories/$(incoming().categoryId)) &&
+                         (
+                           // Action: Full edit of recurring or subscription details
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'categoryId', 'name', 'amount', 'kind', 'cadence',
+                             'nextDueEpochDay', 'active', 'sample', 'updatedAt'
+                           ]) ||
+                           // Action: Toggle active/paused state
+                           incoming().diff(existing()).affectedKeys().hasOnly(['active', 'updatedAt']) ||
+                           // Action: Advance due date after logging payment
+                           incoming().diff(existing()).affectedKeys().hasOnly(['nextDueEpochDay', 'updatedAt']) ||
+                           // Action: Reassign category when a category is deleted
+                           incoming().diff(existing()).affectedKeys().hasOnly(['categoryId', 'updatedAt'])
+                         );
+
+        allow delete: if isOwner(userId) && isValidId(recurringId);
       }
     }
   }

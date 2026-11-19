@@ -136,6 +136,74 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "RecurringItem": {
+      "title": "RecurringItem",
+      "description": "Scheduled recurring transaction or subscription linked to a budget category.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID."
+        },
+        "categoryId": {
+          "type": "string",
+          "description": "Document ID of the associated BudgetCategory."
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name of the recurring bill or subscription (1 to 80 characters)."
+        },
+        "amount": {
+          "type": "number",
+          "description": "Scheduled payment amount (> 0 and <= 1000000)."
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["recurring", "subscription"],
+          "description": "Distinguishes recurring bills from subscriptions."
+        },
+        "cadence": {
+          "type": "string",
+          "enum": ["weekly", "biweekly", "monthly", "yearly"],
+          "description": "Billing frequency."
+        },
+        "nextDueEpochDay": {
+          "type": "integer",
+          "description": "Next scheduled due date as timezone-independent epoch day."
+        },
+        "active": {
+          "type": "boolean",
+          "description": "Whether this schedule is active or paused."
+        },
+        "sample": {
+          "type": "boolean",
+          "description": "True if created as starter sample data."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written via FieldValue.serverTimestamp() on creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written via FieldValue.serverTimestamp() on updates."
+        }
+      },
+      "required": [
+        "userId",
+        "categoryId",
+        "name",
+        "amount",
+        "kind",
+        "cadence",
+        "nextDueEpochDay",
+        "active",
+        "sample",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -156,6 +224,12 @@
         "$ref": "#/entities/Transaction"
       },
       "description": "Owner-isolated personal expense transactions."
+    },
+    "/users/{userId}/recurring/{recurringId}": {
+      "schema": {
+        "$ref": "#/entities/RecurringItem"
+      },
+      "description": "Owner-isolated recurring transactions and subscriptions."
     }
   }
 }

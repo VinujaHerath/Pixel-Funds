@@ -49,6 +49,7 @@ class CadenceRepository(
     private fun userDocRef(uid: String) = db.collection("users").document(uid)
     private fun categoriesCol(uid: String) = userDocRef(uid).collection("categories")
     private fun transactionsCol(uid: String) = userDocRef(uid).collection("transactions")
+    private fun recurringCol(uid: String) = userDocRef(uid).collection("recurring")
 
     override fun observeHasSampleData(): Flow<Boolean> = flow {
         val uid = requireAuthorizedUserId()
@@ -116,6 +117,31 @@ class CadenceRepository(
         )
     }
 
+    override fun observeRecurringItems(): Flow<List<RecurringItem>> = flow {
+        val uid = requireAuthorizedUserId()
+        val path = "users/$uid/recurring"
+        emitAll(
+            recurringCol(uid)
+                .snapshots()
+                .map { snapshot ->
+                    snapshot.toObjects(
+                        RecurringItemDoc::class.java,
+                        DocumentSnapshot.ServerTimestampBehavior.ESTIMATE,
+                    )
+                        .map { it.toDomain() }
+                        .sortedWith(
+                            compareByDescending<RecurringItem> { it.active }
+                                .thenBy { it.nextDueDate }
+                                .thenBy { it.name }
+                        )
+                }
+                .catch { error ->
+                    logStreamErrorIfActive(error, OperationType.LIST, path, uid)
+                    throw error
+                }
+        )
+    }
+
     private fun logStreamErrorIfActive(
         error: Throwable,
         operationType: OperationType,
@@ -132,10 +158,6 @@ class CadenceRepository(
         }
     }
 
-    /**
-     * Initializes a new cloud account once: migrates existing on-device local categories &
-     * transactions if present, otherwise seeds starter sample data.
-     */
     override suspend fun ensureInitialSeed(): Result<Unit> {
         val path = "users/$userId"
         return try {
@@ -161,7 +183,7 @@ class CadenceRepository(
                     ),
                 )
 
-                localSnapshot.categories.take(100).forEachIndexed { index, cat ->
+                localSnapshot.categories.take(80).forEachIndexed { index, cat ->
                     val safeId = sanitizeDocId(cat.id, "cat_$index")
                     validCategoryIds.add(safeId)
                     batch.set(
@@ -181,7 +203,7 @@ class CadenceRepository(
                 }
 
                 val fallbackCatId = validCategoryIds.first()
-                localSnapshot.transactions.take(350).forEach { tx ->
+                localSnapshot.transactions.take(300).forEach { tx ->
                     val safeCatId = sanitizeDocId(tx.categoryId, fallbackCatId)
                         .takeIf { it in validCategoryIds } ?: fallbackCatId
                     batch.set(
@@ -193,6 +215,28 @@ class CadenceRepository(
                             "merchantOrNote" to tx.merchantOrNote.trim().ifBlank { "Expense" }.take(120),
                             "dateEpochDay" to tx.date.toEpochDay().coerceIn(0L, 100_000L),
                             "sample" to tx.sample,
+                            "createdAt" to FieldValue.serverTimestamp(),
+                            "updatedAt" to FieldValue.serverTimestamp(),
+                        ),
+                    )
+                }
+
+                localSnapshot.recurringItems.take(60).forEachIndexed { index, rec ->
+                    val safeId = sanitizeDocId(rec.id, "rec_$index")
+                    val safeCatId = sanitizeDocId(rec.categoryId, fallbackCatId)
+                        .takeIf { it in validCategoryIds } ?: fallbackCatId
+                    batch.set(
+                        recurringCol(uid).document(safeId),
+                        mapOf(
+                            "userId" to uid,
+                            "categoryId" to safeCatId,
+                            "name" to rec.name.trim().ifBlank { "Recurring" }.take(80),
+                            "amount" to rec.amount.coerceIn(0.01, 1_000_000.0),
+                            "kind" to rec.kind.storageKey,
+                            "cadence" to rec.cadence.storageKey,
+                            "nextDueEpochDay" to rec.nextDueDate.toEpochDay().coerceIn(0L, 100_000L),
+                            "active" to rec.active,
+                            "sample" to rec.sample,
                             "createdAt" to FieldValue.serverTimestamp(),
                             "updatedAt" to FieldValue.serverTimestamp(),
                         ),
@@ -243,6 +287,25 @@ class CadenceRepository(
                         ),
                     )
                 }
+
+                StarterBudgetData.defaultRecurringItems(today).forEach { seed ->
+                    batch.set(
+                        recurringCol(uid).document(seed.id),
+                        mapOf(
+                            "userId" to uid,
+                            "categoryId" to seed.categoryId,
+                            "name" to seed.name,
+                            "amount" to seed.amount,
+                            "kind" to seed.kind.storageKey,
+                            "cadence" to seed.cadence.storageKey,
+                            "nextDueEpochDay" to seed.nextDueDate.toEpochDay(),
+                            "active" to true,
+                            "sample" to true,
+                            "createdAt" to FieldValue.serverTimestamp(),
+                            "updatedAt" to FieldValue.serverTimestamp(),
+                        ),
+                    )
+                }
             }
 
             batch.commit().await()
@@ -260,9 +323,15 @@ class CadenceRepository(
         return try {
             val uid = requireAuthorizedUserId()
             val txSnap = transactionsCol(uid).get().await()
+            val recSnap = recurringCol(uid).get().await()
             val batch = db.batch()
 
             txSnap.documents.forEach { doc ->
+                if (doc.getBoolean("sample") == true) {
+                    batch.delete(doc.reference)
+                }
+            }
+            recSnap.documents.forEach { doc ->
                 if (doc.getBoolean("sample") == true) {
                     batch.delete(doc.reference)
                 }
@@ -343,6 +412,25 @@ class CadenceRepository(
                 )
             }
 
+            StarterBudgetData.defaultRecurringItems(today).forEach { seed ->
+                batch.set(
+                    recurringCol(uid).document(seed.id),
+                    mapOf(
+                        "userId" to uid,
+                        "categoryId" to seed.categoryId,
+                        "name" to seed.name,
+                        "amount" to seed.amount,
+                        "kind" to seed.kind.storageKey,
+                        "cadence" to seed.cadence.storageKey,
+                        "nextDueEpochDay" to seed.nextDueDate.toEpochDay(),
+                        "active" to true,
+                        "sample" to true,
+                        "createdAt" to FieldValue.serverTimestamp(),
+                        "updatedAt" to FieldValue.serverTimestamp(),
+                    ),
+                )
+            }
+
             val profileSnap = userDocRef(uid).get().await()
             if (profileSnap.exists()) {
                 batch.update(
@@ -376,6 +464,25 @@ class CadenceRepository(
         }
     }
 
+    override suspend fun clearAllTransactions(): Result<Unit> {
+        val path = "users/$userId/transactions"
+        return try {
+            val uid = requireAuthorizedUserId()
+            val txSnap = transactionsCol(uid).get().await()
+            txSnap.documents.chunked(400).forEach { chunk ->
+                val batch = db.batch()
+                chunk.forEach { doc -> batch.delete(doc.reference) }
+                batch.commit().await()
+            }
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.DELETE, path)
+            Result.failure(e)
+        }
+    }
+
     override suspend fun addTransaction(
         categoryId: String,
         amount: Double,
@@ -388,7 +495,7 @@ class CadenceRepository(
             val uid = requireAuthorizedUserId()
             val cleanNote = merchantOrNote.trim().take(120)
             require(categoryId.isNotBlank()) { "Category must be selected." }
-            require(amount > 0.0 && amount <= 1_000_000.0) { "Amount must be between $0.01 and $1,000,000." }
+            require(amount > 0.0 && amount <= 1_000_000.0) { "Amount must be positive." }
             require(cleanNote.isNotEmpty()) { "Merchant or note cannot be empty." }
 
             val docRef = transactionsCol(uid).document()
@@ -426,7 +533,7 @@ class CadenceRepository(
             val cleanNote = merchantOrNote.trim().take(120)
             require(transactionId.isNotBlank()) { "Transaction ID is required." }
             require(categoryId.isNotBlank()) { "Category must be selected." }
-            require(amount > 0.0 && amount <= 1_000_000.0) { "Amount must be between $0.01 and $1,000,000." }
+            require(amount > 0.0 && amount <= 1_000_000.0) { "Amount must be positive." }
             require(cleanNote.isNotEmpty()) { "Merchant or note cannot be empty." }
 
             transactionsCol(uid).document(transactionId).update(
@@ -454,6 +561,163 @@ class CadenceRepository(
             val uid = requireAuthorizedUserId()
             require(transactionId.isNotBlank()) { "Transaction ID is required." }
             transactionsCol(uid).document(transactionId).delete().await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.DELETE, docPath)
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun addRecurringItem(
+        categoryId: String,
+        name: String,
+        amount: Double,
+        kind: RecurringKind,
+        cadence: BillingCadence,
+        nextDueDate: LocalDay,
+        active: Boolean,
+        sample: Boolean,
+    ): Result<Unit> {
+        var docPath = "users/$userId/recurring"
+        return try {
+            val uid = requireAuthorizedUserId()
+            val cleanName = name.trim().take(80)
+            require(categoryId.isNotBlank()) { "Category must be selected." }
+            require(cleanName.isNotEmpty()) { "Name cannot be empty." }
+            require(amount > 0.0 && amount <= 1_000_000.0) { "Amount must be positive." }
+
+            val docId = "rec_${UUID.randomUUID().toString().replace("-", "").take(12)}"
+            val docRef = recurringCol(uid).document(docId)
+            docPath = docRef.path
+            docRef.set(
+                mapOf(
+                    "userId" to uid,
+                    "categoryId" to categoryId,
+                    "name" to cleanName,
+                    "amount" to amount,
+                    "kind" to kind.storageKey,
+                    "cadence" to cadence.storageKey,
+                    "nextDueEpochDay" to nextDueDate.toEpochDay(),
+                    "active" to active,
+                    "sample" to sample,
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.CREATE, docPath)
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun updateRecurringItem(
+        recurringId: String,
+        categoryId: String,
+        name: String,
+        amount: Double,
+        kind: RecurringKind,
+        cadence: BillingCadence,
+        nextDueDate: LocalDay,
+        active: Boolean,
+    ): Result<Unit> {
+        val docPath = "users/$userId/recurring/$recurringId"
+        return try {
+            val uid = requireAuthorizedUserId()
+            val cleanName = name.trim().take(80)
+            require(recurringId.isNotBlank()) { "Recurring ID is required." }
+            require(categoryId.isNotBlank()) { "Category must be selected." }
+            require(cleanName.isNotEmpty()) { "Name cannot be empty." }
+            require(amount > 0.0 && amount <= 1_000_000.0) { "Amount must be positive." }
+
+            recurringCol(uid).document(recurringId).update(
+                mapOf(
+                    "categoryId" to categoryId,
+                    "name" to cleanName,
+                    "amount" to amount,
+                    "kind" to kind.storageKey,
+                    "cadence" to cadence.storageKey,
+                    "nextDueEpochDay" to nextDueDate.toEpochDay(),
+                    "active" to active,
+                    "sample" to false,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, docPath)
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun setRecurringActive(recurringId: String, active: Boolean): Result<Unit> {
+        val docPath = "users/$userId/recurring/$recurringId"
+        return try {
+            val uid = requireAuthorizedUserId()
+            require(recurringId.isNotBlank()) { "Recurring ID is required." }
+            recurringCol(uid).document(recurringId).update(
+                mapOf(
+                    "active" to active,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, docPath)
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun logRecurringPayment(item: RecurringItem, paidOn: LocalDay): Result<Unit> {
+        val docPath = "users/$userId/recurring/${item.id}"
+        return try {
+            val uid = requireAuthorizedUserId()
+            val nextDue = item.cadence.nextOccurrenceAfter(maxOf(item.nextDueDate, paidOn))
+            val batch = db.batch()
+            batch.set(
+                transactionsCol(uid).document(),
+                mapOf(
+                    "userId" to uid,
+                    "categoryId" to item.categoryId,
+                    "amount" to item.amount,
+                    "merchantOrNote" to item.name.take(120),
+                    "dateEpochDay" to paidOn.toEpochDay(),
+                    "sample" to false,
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                ),
+            )
+            batch.update(
+                recurringCol(uid).document(item.id),
+                mapOf(
+                    "nextDueEpochDay" to nextDue.toEpochDay(),
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                ),
+            )
+            batch.commit().await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, docPath)
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun deleteRecurringItem(recurringId: String): Result<Unit> {
+        val docPath = "users/$userId/recurring/$recurringId"
+        return try {
+            val uid = requireAuthorizedUserId()
+            require(recurringId.isNotBlank()) { "Recurring ID is required." }
+            recurringCol(uid).document(recurringId).delete().await()
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
@@ -571,8 +835,20 @@ class CadenceRepository(
             require(categoryId != fallbackCategoryId) { "Cannot reassign category to itself." }
 
             val txSnap = transactionsCol(uid).get().await()
+            val recSnap = recurringCol(uid).get().await()
             val batch = db.batch()
             txSnap.documents.forEach { doc ->
+                if (doc.getString("categoryId") == categoryId) {
+                    batch.update(
+                        doc.reference,
+                        mapOf(
+                            "categoryId" to fallbackCategoryId,
+                            "updatedAt" to FieldValue.serverTimestamp(),
+                        ),
+                    )
+                }
+            }
+            recSnap.documents.forEach { doc ->
                 if (doc.getString("categoryId") == categoryId) {
                     batch.update(
                         doc.reference,

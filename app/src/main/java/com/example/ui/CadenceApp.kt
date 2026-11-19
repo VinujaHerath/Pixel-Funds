@@ -2,6 +2,7 @@ package com.example.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
@@ -9,6 +10,10 @@ import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -18,7 +23,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,7 +31,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -63,7 +66,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -77,14 +79,18 @@ import com.example.data.Transaction
 import com.example.data.WorkspaceLoadState
 import com.example.ui.auth.signOut
 import com.example.ui.components.FloatingPillToolbar
+import com.example.ui.components.LocalReduceMotion
 import com.example.ui.components.WavyProgressIndicator
 import com.example.ui.components.formatCurrency
+import com.example.ui.components.rememberPixelHaptics
+import com.example.ui.screens.ActivitySection
 import com.example.ui.screens.BudgetsScreen
 import com.example.ui.screens.CategoryEditorBottomSheet
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.ExpenseEntryBottomSheet
 import com.example.ui.screens.InsightsScreen
-import com.example.ui.screens.SettingsBottomSheet
+import com.example.ui.screens.RecurringEditorBottomSheet
+import com.example.ui.screens.SettingsOverlayScreen
 import com.example.ui.screens.TransactionsScreen
 import com.example.ui.theme.ExpressiveMotion
 import com.example.ui.theme.budgetStatusPalette
@@ -99,10 +105,12 @@ fun CadenceApp(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val userPreferences by viewModel.userPreferences.collectAsStateWithLifecycle()
     var activeTab by remember { mutableStateOf(CadenceTab.Home) }
+    var activitySection by remember { mutableStateOf(ActivitySection.TRANSACTIONS) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val haptics = LocalHapticFeedback.current
+    val performHaptic = rememberPixelHaptics()
+    val reduceMotion = LocalReduceMotion.current
     val credentialManager = remember(context) { CredentialManager.create(context) }
 
     val isCloudSignedIn = signedInUser != null
@@ -129,10 +137,10 @@ fun CadenceApp(
         }
     }
 
-    BackHandler(enabled = uiState.expandedCategoryId != null) {
+    BackHandler(enabled = uiState.expandedCategoryId != null && !uiState.isAccountSheetOpen) {
         viewModel.expandCategory(null)
     }
-    BackHandler(enabled = uiState.expandedCategoryId == null && activeTab != CadenceTab.Home) {
+    BackHandler(enabled = uiState.expandedCategoryId == null && !uiState.isAccountSheetOpen && activeTab != CadenceTab.Home) {
         activeTab = CadenceTab.Home
     }
 
@@ -145,7 +153,9 @@ fun CadenceApp(
                 snackbarHost = {
                     SnackbarHost(
                         hostState = snackbarHostState,
-                        modifier = Modifier.padding(bottom = if (isExpandedWidth) 16.dp else 96.dp),
+                        modifier = Modifier.padding(
+                            bottom = if (isExpandedWidth || uiState.isAccountSheetOpen) 16.dp else 96.dp
+                        ),
                     )
                 },
             ) { innerPadding ->
@@ -160,7 +170,7 @@ fun CadenceApp(
                             header = {
                                 FloatingActionButton(
                                     onClick = {
-                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        performHaptic(HapticFeedbackType.LongPress)
                                         viewModel.openNewExpenseSheet()
                                     },
                                     containerColor = MaterialTheme.colorScheme.primary,
@@ -181,7 +191,7 @@ fun CadenceApp(
                                 NavigationRailItem(
                                     selected = tab == activeTab,
                                     onClick = {
-                                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        performHaptic(HapticFeedbackType.TextHandleMove)
                                         activeTab = tab
                                     },
                                     icon = { Icon(tab.icon, contentDescription = tab.label) },
@@ -253,13 +263,25 @@ fun CadenceApp(
                                 AnimatedContent(
                                     targetState = activeTab,
                                     transitionSpec = {
-                                        fadeIn(ExpressiveMotion.fastEffects()) +
-                                            scaleIn(
-                                                initialScale = 0.96f,
-                                                animationSpec = ExpressiveMotion.defaultSpatial(),
-                                            ) togetherWith fadeOut(ExpressiveMotion.fastEffects())
+                                        if (reduceMotion) {
+                                            fadeIn(ExpressiveMotion.fastEffects()) togetherWith
+                                                fadeOut(ExpressiveMotion.fastEffects())
+                                        } else {
+                                            val forward = targetState.ordinal > initialState.ordinal
+                                            val enter = slideInHorizontally(ExpressiveMotion.defaultSpatial()) { w ->
+                                                if (forward) w / 7 else -w / 7
+                                            } + fadeIn(ExpressiveMotion.fastEffects()) +
+                                                scaleIn(
+                                                    initialScale = 0.97f,
+                                                    animationSpec = ExpressiveMotion.defaultSpatial(),
+                                                )
+                                            val exit = slideOutHorizontally(ExpressiveMotion.fastSpatial()) { w ->
+                                                if (forward) -w / 8 else w / 8
+                                            } + fadeOut(ExpressiveMotion.fastEffects())
+                                            enter togetherWith exit
+                                        }
                                     },
-                                    label = "TabCrossfade",
+                                    label = "TabDirectionalTransition",
                                     modifier = Modifier
                                         .fillMaxHeight()
                                         .fillMaxWidth()
@@ -281,7 +303,14 @@ fun CadenceApp(
                                             sharedTransitionScope = this@SharedTransitionLayout,
                                             animatedVisibilityScope = this@AnimatedContent,
                                             onCategoryClick = { viewModel.expandCategory(it.id) },
-                                            onViewAllActivity = { activeTab = CadenceTab.Activity },
+                                            onViewAllActivity = {
+                                                activitySection = ActivitySection.TRANSACTIONS
+                                                activeTab = CadenceTab.Activity
+                                            },
+                                            onOpenBillsAndSubs = {
+                                                activitySection = ActivitySection.BILLS_AND_SUBS
+                                                activeTab = CadenceTab.Activity
+                                            },
                                             onOpenAccount = viewModel::openAccountSheet,
                                             onClearSampleData = viewModel::clearSampleData,
                                             onChangeResetDay = viewModel::updateBudgetResetDay,
@@ -297,11 +326,17 @@ fun CadenceApp(
 
                                         CadenceTab.Activity -> TransactionsScreen(
                                             state = uiState,
+                                            activeSection = activitySection,
+                                            onSelectSection = { activitySection = it },
                                             contentPadding = contentPadding,
                                             onSearchChange = viewModel::updateSearchQuery,
                                             onFilterCategory = viewModel::selectFilterCategory,
                                             onEdit = viewModel::openEditExpenseSheet,
                                             onDelete = viewModel::deleteTransaction,
+                                            onAddRecurring = viewModel::openNewRecurringSheet,
+                                            onEditRecurring = viewModel::openEditRecurringSheet,
+                                            onToggleRecurringActive = viewModel::toggleRecurringActive,
+                                            onLogRecurringNow = viewModel::logRecurringPaymentNow,
                                         )
 
                                         CadenceTab.Insights -> InsightsScreen(
@@ -313,9 +348,11 @@ fun CadenceApp(
 
                                 if (!isExpandedWidth) {
                                     androidx.compose.animation.AnimatedVisibility(
-                                        visible = uiState.expandedCategoryId == null,
-                                        enter = fadeIn(ExpressiveMotion.fastEffects()),
-                                        exit = fadeOut(ExpressiveMotion.fastEffects()),
+                                        visible = uiState.expandedCategoryId == null && !uiState.isAccountSheetOpen,
+                                        enter = fadeIn(ExpressiveMotion.fastEffects()) +
+                                            slideInVertically(ExpressiveMotion.fastSpatial()) { it / 2 },
+                                        exit = fadeOut(ExpressiveMotion.fastEffects()) +
+                                            slideOutVertically(ExpressiveMotion.fastSpatial()) { it / 2 },
                                         modifier = Modifier.align(Alignment.BottomCenter),
                                     ) {
                                         FloatingPillToolbar(
@@ -348,6 +385,53 @@ fun CadenceApp(
                     }
                 }
             }
+
+            // Full-screen Settings Overlay with smooth Pixel spring slide-up + fade transition
+            AnimatedVisibility(
+                visible = uiState.isAccountSheetOpen,
+                enter = if (reduceMotion) {
+                    fadeIn(ExpressiveMotion.fastEffects())
+                } else {
+                    slideInVertically(ExpressiveMotion.defaultSpatial()) { it / 5 } +
+                        fadeIn(ExpressiveMotion.fastEffects())
+                },
+                exit = if (reduceMotion) {
+                    fadeOut(ExpressiveMotion.fastEffects())
+                } else {
+                    slideOutVertically(ExpressiveMotion.fastSpatial()) { it / 5 } +
+                        fadeOut(ExpressiveMotion.fastEffects())
+                },
+            ) {
+                SettingsOverlayScreen(
+                    state = uiState,
+                    preferences = userPreferences,
+                    isCloudSignedIn = isCloudSignedIn,
+                    displayName = userDisplayName,
+                    email = userEmail,
+                    credentialManager = credentialManager,
+                    onDismiss = viewModel::dismissAccountSheet,
+                    onSelectResetDay = viewModel::updateBudgetResetDay,
+                    onSelectCurrency = viewModel::updateCurrencyCode,
+                    onSelectThemeMode = viewModel::updateThemeMode,
+                    onToggleDynamicColorInManualTheme = viewModel::updateDynamicColorInManualTheme,
+                    onToggleShowDecimals = viewModel::updateShowDecimals,
+                    onToggleHaptics = viewModel::updateHapticsEnabled,
+                    onToggleReduceMotion = viewModel::updateReduceMotion,
+                    onUpdateWarningThreshold = viewModel::updateWarningThresholdPercent,
+                    onToggleIncludeFixedBills = viewModel::updateIncludeFixedBillsInSafeDaily,
+                    onToggleCompactCards = viewModel::updateCompactCards,
+                    onBuildCsv = viewModel::buildTransactionsCsv,
+                    onExportStatusMessage = viewModel::showToastMessage,
+                    onClearSampleData = viewModel::clearSampleData,
+                    onRestoreSampleData = viewModel::restoreSampleData,
+                    onClearAllTransactions = viewModel::clearAllTransactions,
+                    onSignInSuccess = { viewModel.dismissAccountSheet() },
+                    onSignOut = {
+                        viewModel.dismissAccountSheet()
+                        signOut(credentialManager = credentialManager, scope = scope)
+                    },
+                )
+            }
         }
     }
 
@@ -372,29 +456,15 @@ fun CadenceApp(
         )
     }
 
-    if (uiState.isAccountSheetOpen) {
-        SettingsBottomSheet(
-            preferences = userPreferences,
-            isCloudSignedIn = isCloudSignedIn,
-            displayName = userDisplayName,
-            email = userEmail,
-            hasSampleData = uiState.hasSampleData,
-            isBusy = uiState.isMutating,
-            credentialManager = credentialManager,
-            onDismiss = viewModel::dismissAccountSheet,
-            onSelectResetDay = viewModel::updateBudgetResetDay,
-            onSelectCurrency = viewModel::updateCurrencyCode,
-            onSelectThemeMode = viewModel::updateThemeMode,
-            onToggleDynamicColorInManualTheme = viewModel::updateDynamicColorInManualTheme,
-            onClearSampleData = viewModel::clearSampleData,
-            onRestoreSampleData = viewModel::restoreSampleData,
-            onSignInSuccess = {
-                viewModel.dismissAccountSheet()
-            },
-            onSignOut = {
-                viewModel.dismissAccountSheet()
-                signOut(credentialManager = credentialManager, scope = scope)
-            },
+    if (uiState.isRecurringSheetOpen) {
+        RecurringEditorBottomSheet(
+            categories = uiState.categories,
+            editingItem = uiState.editingRecurring,
+            defaultKind = uiState.defaultRecurringKind,
+            isSaving = uiState.isMutating,
+            onDismiss = viewModel::dismissRecurringSheet,
+            onSave = viewModel::saveRecurringItem,
+            onDelete = viewModel::deleteRecurringItem,
         )
     }
 }
