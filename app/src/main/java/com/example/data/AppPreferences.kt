@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.map
 import java.io.IOException
 import java.util.Currency
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 private val Context.pixelFundsPrefsDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "pixel_funds_preferences",
@@ -131,6 +132,16 @@ object WorldCurrencyCatalog {
         "AZN" to "₼",
     )
 
+    private val quickLookupCache = ConcurrentHashMap<String, CurrencyOption>()
+
+    val USD: CurrencyOption = CurrencyOption(
+        code = "USD",
+        displayName = "US Dollar",
+        symbol = "$",
+        fractionDigits = 2,
+        regions = "United States",
+    )
+
     val allCurrencies: List<CurrencyOption> by lazy {
         val displayLocale = Locale.getDefault()
         val regionsByCode = HashMap<String, MutableSet<String>>()
@@ -182,32 +193,52 @@ object WorldCurrencyCatalog {
             }
             .sortedWith(compareBy<CurrencyOption> { it.displayName.lowercase(Locale.ROOT) }.thenBy { it.code })
             .toList()
-    }
-
-    private val byCode: Map<String, CurrencyOption> by lazy {
-        allCurrencies.associateBy { it.code }
-    }
-
-    val USD: CurrencyOption by lazy {
-        byCode["USD"] ?: CurrencyOption(
-            code = "USD",
-            displayName = "US Dollar",
-            symbol = "$",
-            fractionDigits = 2,
-            regions = "United States",
-        )
+            .also { list ->
+                list.forEach { quickLookupCache[it.code] = it }
+            }
     }
 
     fun defaultCurrencyCode(): String {
         val localeCode = runCatching { Currency.getInstance(Locale.getDefault()).currencyCode }
             .getOrNull()
-        return if (localeCode != null && byCode.containsKey(localeCode)) localeCode else "USD"
+            ?.uppercase(Locale.ROOT)
+        return if (localeCode != null && localeCode.length == 3 && localeCode !in nonCirculatingCodes) {
+            localeCode
+        } else {
+            "USD"
+        }
     }
 
     fun defaultCurrency(): CurrencyOption = findByCode(defaultCurrencyCode())
 
-    fun findByCode(code: String?): CurrencyOption =
-        if (code != null) byCode[code.uppercase(Locale.ROOT)] ?: USD else USD
+    fun findByCode(code: String?): CurrencyOption {
+        val normalized = code?.trim()?.uppercase(Locale.ROOT)?.takeIf { it.length == 3 } ?: return USD
+        if (normalized == "USD") return USD
+        quickLookupCache[normalized]?.let { return it }
+
+        val resolved = runCatching {
+            val currency = Currency.getInstance(normalized)
+            val displayLocale = Locale.getDefault()
+            val name = runCatching { currency.getDisplayName(displayLocale) }
+                .getOrNull()
+                ?.takeIf { it.isNotBlank() }
+                ?: normalized
+            val symbol = preferredSymbols[normalized]
+                ?: runCatching { currency.getSymbol(Locale.US) }.getOrNull()
+                    ?.takeIf { it.isNotBlank() }
+                ?: normalized
+            CurrencyOption(
+                code = normalized,
+                displayName = name,
+                symbol = symbol,
+                fractionDigits = currency.defaultFractionDigits.coerceIn(0, 3),
+                regions = "",
+            )
+        }.getOrNull() ?: USD
+
+        quickLookupCache[normalized] = resolved
+        return resolved
+    }
 }
 
 class AppPreferencesRepository(private val context: Context) {

@@ -80,6 +80,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -107,6 +108,8 @@ import com.example.ui.auth.onGoogleSignInClicked
 import com.example.ui.components.rememberPixelHaptics
 import com.example.ui.theme.ExpressiveMotion
 import com.example.ui.theme.LocalFinancialColors
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -332,14 +335,14 @@ fun SettingsOverlayScreen(
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
-                                    if (authError != null) {
+                                    authError?.let { errorText ->
                                         Surface(
                                             shape = RoundedCornerShape(16.dp),
                                             color = MaterialTheme.colorScheme.errorContainer,
                                             modifier = Modifier.fillMaxWidth(),
                                         ) {
                                             Text(
-                                                text = authError!!,
+                                                text = errorText,
                                                 style = MaterialTheme.typography.labelMedium,
                                                 color = MaterialTheme.colorScheme.onErrorContainer,
                                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -1134,13 +1137,18 @@ private fun CurrencyPickerBottomSheet(
     val performHaptic = rememberPixelHaptics()
     var query by remember { mutableStateOf("") }
 
-    val allCurrencies = remember { WorldCurrencyCatalog.allCurrencies }
+    val allCurrencies by produceState<List<CurrencyOption>?>(initialValue = null) {
+        value = withContext(Dispatchers.Default) {
+            WorldCurrencyCatalog.allCurrencies
+        }
+    }
     val filtered = remember(query, allCurrencies, selectedCode) {
+        val list = allCurrencies ?: return@remember emptyList()
         val q = query.trim().lowercase(Locale.ROOT)
         val matches = if (q.isEmpty()) {
-            allCurrencies
+            list
         } else {
-            allCurrencies.filter { it.searchIndex.contains(q) }
+            list.filter { it.searchIndex.contains(q) }
         }
         if (q.isEmpty()) {
             val active = matches.find { it.code == selectedCode }
@@ -1171,11 +1179,14 @@ private fun CurrencyPickerBottomSheet(
                     text = stringResource(R.string.settings_currency_picker_title),
                     style = MaterialTheme.typography.headlineMedium,
                 )
-                Text(
-                    text = stringResource(R.string.settings_currency_count, allCurrencies.size),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                val loadedCount = allCurrencies?.size ?: 0
+                if (loadedCount > 0) {
+                    Text(
+                        text = stringResource(R.string.settings_currency_count, loadedCount),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
 
             OutlinedTextField(
@@ -1205,7 +1216,16 @@ private fun CurrencyPickerBottomSheet(
                 ),
             )
 
-            if (filtered.isEmpty()) {
+            if (allCurrencies == null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
+            } else if (filtered.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()

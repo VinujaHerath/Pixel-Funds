@@ -46,12 +46,12 @@ import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flowOf
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        enablePixelSmoothDisplay()
         val preferencesRepository = AppPreferencesRepository(applicationContext)
 
         setContent {
@@ -97,20 +97,27 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        enablePixelSmoothDisplay()
+    }
+
     private fun enablePixelSmoothDisplay() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            val currentDisplay = display ?: return
-            val currentMode = currentDisplay.mode
-            val bestMode = currentDisplay.supportedModes
-                .filter {
-                    it.physicalWidth == currentMode.physicalWidth &&
-                        it.physicalHeight == currentMode.physicalHeight
+            runCatching {
+                val currentDisplay = window?.decorView?.display ?: display ?: return
+                val currentMode = currentDisplay.mode ?: return
+                val bestMode = currentDisplay.supportedModes
+                    .filter {
+                        it.physicalWidth == currentMode.physicalWidth &&
+                            it.physicalHeight == currentMode.physicalHeight
+                    }
+                    .maxByOrNull { it.refreshRate }
+                if (bestMode != null && bestMode.modeId != currentMode.modeId) {
+                    val attrs = window.attributes
+                    attrs.preferredDisplayModeId = bestMode.modeId
+                    window.attributes = attrs
                 }
-                .maxByOrNull { it.refreshRate }
-            if (bestMode != null && bestMode.modeId != currentMode.modeId) {
-                val attrs = window.attributes
-                attrs.preferredDisplayModeId = bestMode.modeId
-                window.attributes = attrs
             }
         }
     }
@@ -127,23 +134,26 @@ private fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
 @Composable
 private fun PixelFundsRootNavigation(
     preferencesRepository: AppPreferencesRepository,
-    auth: FirebaseAuth = Firebase.auth,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val credentialManager = remember(context) { CredentialManager.create(context) }
-    val currentUser by auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
+    val auth = remember { runCatching { Firebase.auth }.getOrNull() }
+    val authStateFlow = remember(auth) { auth?.authStateFlow() ?: flowOf(null) }
+    val currentUser by authStateFlow.collectAsStateWithLifecycle(initialValue = auth?.currentUser)
 
     // Non-blocking silent check for previously authorized Google accounts;
     // users remain immediately in local on-device mode if not signed in.
-    LaunchedEffect(Unit) {
-        attemptAutoSignIn(
-            context = context,
-            credentialManager = credentialManager,
-            onAuthSuccess = {},
-            onUnauthenticated = {},
-            scope = scope,
-        )
+    LaunchedEffect(auth) {
+        if (auth != null) {
+            attemptAutoSignIn(
+                context = context,
+                credentialManager = credentialManager,
+                onAuthSuccess = {},
+                onUnauthenticated = {},
+                scope = scope,
+            )
+        }
     }
 
     val user = currentUser
@@ -159,13 +169,15 @@ private fun PixelFundsRootNavigation(
                     }
                     val localRepository = LocalBudgetRepository(app)
                     val repository = if (user != null) {
-                        val databaseId = app.getString(R.string.firestore_database_id)
-                        val db = FirebaseFirestore.getInstance(databaseId)
-                        CadenceRepository(
-                            db = db,
-                            userId = user.uid,
-                            localMigrationSource = localRepository,
-                        )
+                        runCatching {
+                            val databaseId = app.getString(R.string.firestore_database_id)
+                            val db = FirebaseFirestore.getInstance(databaseId)
+                            CadenceRepository(
+                                db = db,
+                                userId = user.uid,
+                                localMigrationSource = localRepository,
+                            )
+                        }.getOrElse { localRepository }
                     } else {
                         localRepository
                     }
@@ -205,7 +217,7 @@ private fun PixelFundsRootNavigation(
 
             onDispose {
                 lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
-                context.unregisterReceiver(dateChangeReceiver)
+                runCatching { context.unregisterReceiver(dateChangeReceiver) }
             }
         }
 
