@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.example.ExampleRobolectricTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-11-20T08:14:00.622Z" hostname="VINUJAH" time="28.64">
+  <properties/>
+  <testcase name="budgetThresholdEvaluatorTriggers80And100PercentAlertsWithoutDuplicates" classname="com.example.ExampleRobolectricTest" time="20.632"/>
+  <testcase name="csvImportParsesExportedFormatAndCreatesMissingCategories" classname="com.example.ExampleRobolectricTest" time="0.307"/>
+  <testcase name="appNameMatchesPixelFunds" classname="com.example.ExampleRobolectricTest" time="0.194"/>
+  <testcase name="fullJsonBackupExportAndImportRoundTripsAllLocalData" classname="com.example.ExampleRobolectricTest" time="0.285"/>
+  <testcase name="mainActivityStartsWithOnboardingTutorialAndRendersPrimaryFlows" classname="com.example.ExampleRobolectricTest" time="5.658"/>
+  <testcase name="roomMonthlyBudgetRepositoryAggregatesSpendingAndComparesAgainstLimit" classname="com.example.ExampleRobolectricTest" time="0.142"/>
+  <testcase name="androidBudgetAlertNotifierCreatesChannelAndPosts80And100Notifications" classname="com.example.ExampleRobolectricTest" time="0.157"/>
+  <testcase name="defaultCurrencyResolvesFastWithoutMainThreadFreeze" classname="com.example.ExampleRobolectricTest" time="0.113"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
