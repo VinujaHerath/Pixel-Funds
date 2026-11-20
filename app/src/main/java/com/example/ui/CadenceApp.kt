@@ -81,12 +81,15 @@ import com.example.ui.components.WavyProgressIndicator
 import com.example.ui.components.formatCurrency
 import com.example.ui.components.rememberPixelHaptics
 import com.example.ui.screens.ActivitySection
+import com.example.ui.screens.AppTutorialOverlay
+import com.example.ui.screens.AppTutorialSteps
 import com.example.ui.screens.BudgetsScreen
 import com.example.ui.screens.BudgetsSection
 import com.example.ui.screens.CategoryEditorBottomSheet
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.ExpenseEntryBottomSheet
 import com.example.ui.screens.InsightsScreen
+import com.example.ui.screens.OnboardingScreen
 import com.example.ui.screens.RecurringEditorBottomSheet
 import com.example.ui.screens.SettingsOverlayScreen
 import com.example.ui.screens.TransactionsScreen
@@ -102,6 +105,12 @@ fun CadenceApp(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val overviewState by overviewViewModel.uiState.collectAsStateWithLifecycle()
     val userPreferences by viewModel.userPreferences.collectAsStateWithLifecycle()
+    val preferencesLoaded by viewModel.preferencesLoaded.collectAsStateWithLifecycle()
+    val isOnboardingForced by viewModel.isOnboardingForced.collectAsStateWithLifecycle()
+    val tutorialStepIndex by viewModel.tutorialStepIndex.collectAsStateWithLifecycle()
+
+    val showOnboarding = preferencesLoaded && (!userPreferences.hasCompletedOnboarding || isOnboardingForced)
+
     var activeTab by remember { mutableStateOf(CadenceTab.Home) }
     var budgetsSection by remember { mutableStateOf(BudgetsSection.OVERVIEW) }
     var activitySection by remember { mutableStateOf(ActivitySection.TRANSACTIONS) }
@@ -109,6 +118,18 @@ fun CadenceApp(
     val context = LocalContext.current
     val performHaptic = rememberPixelHaptics()
     val reduceMotion = LocalReduceMotion.current
+
+    // Keep the visible tab & sub-section synced with the current guided tutorial step
+    LaunchedEffect(tutorialStepIndex) {
+        val idx = tutorialStepIndex ?: return@LaunchedEffect
+        val step = AppTutorialSteps.getOrNull(idx) ?: return@LaunchedEffect
+        activeTab = step.targetTab
+        if (step.targetTab == CadenceTab.Budgets) {
+            budgetsSection = step.targetBudgetsSection
+        } else if (step.targetTab == CadenceTab.Activity) {
+            activitySection = step.targetActivitySection
+        }
+    }
 
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
@@ -300,6 +321,7 @@ fun CadenceApp(
                                                 activeTab = CadenceTab.Activity
                                             },
                                             onOpenAccount = viewModel::openAccountSheet,
+                                            onOpenTutorial = viewModel::startTutorial,
                                             onClearSampleData = viewModel::clearSampleData,
                                             onChangeResetDay = viewModel::updateBudgetResetDay,
                                         )
@@ -422,6 +444,50 @@ fun CadenceApp(
                     onClearSampleData = viewModel::clearSampleData,
                     onRestoreSampleData = viewModel::restoreSampleData,
                     onClearAllTransactions = viewModel::clearAllTransactions,
+                    onReplayTutorial = viewModel::startTutorial,
+                    onReplayOnboarding = viewModel::replayOnboarding,
+                )
+            }
+
+            // Interactive 6-step Guided Tutorial Overlay (rendered above live tabs)
+            AnimatedVisibility(
+                visible = !showOnboarding && tutorialStepIndex != null && !uiState.isAccountSheetOpen,
+                enter = fadeIn(ExpressiveMotion.fastEffects()),
+                exit = fadeOut(ExpressiveMotion.fastEffects()),
+            ) {
+                val activeStep = tutorialStepIndex ?: 0
+                AppTutorialOverlay(
+                    stepIndex = activeStep,
+                    onNext = { viewModel.nextTutorialStep(AppTutorialSteps.size) },
+                    onBack = viewModel::previousTutorialStep,
+                    onDismiss = viewModel::dismissTutorial,
+                    onFinish = {
+                        activeTab = CadenceTab.Home
+                        budgetsSection = BudgetsSection.OVERVIEW
+                        activitySection = ActivitySection.TRANSACTIONS
+                        viewModel.dismissTutorial()
+                    },
+                )
+            }
+
+            // First-Launch Welcome & Quick Setup Onboarding Flow
+            AnimatedVisibility(
+                visible = showOnboarding,
+                enter = fadeIn(ExpressiveMotion.fastEffects()),
+                exit = fadeOut(ExpressiveMotion.fastEffects()),
+            ) {
+                OnboardingScreen(
+                    preferences = userPreferences,
+                    hasSampleData = uiState.hasSampleData,
+                    onSelectCurrency = viewModel::updateCurrencyCode,
+                    onSelectResetDay = viewModel::updateBudgetResetDay,
+                    onCompleteOnboarding = { startTour, keepSample ->
+                        activeTab = CadenceTab.Home
+                        viewModel.completeOnboarding(
+                            startTutorial = startTour,
+                            keepSampleData = keepSample,
+                        )
+                    },
                 )
             }
         }

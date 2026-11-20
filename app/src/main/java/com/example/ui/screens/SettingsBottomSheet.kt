@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Animation
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -41,6 +42,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.DeleteForever
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.LightMode
@@ -138,6 +140,8 @@ fun SettingsOverlayScreen(
     onClearSampleData: () -> Unit,
     onRestoreSampleData: () -> Unit,
     onClearAllTransactions: () -> Unit,
+    onReplayTutorial: () -> Unit,
+    onReplayOnboarding: () -> Unit,
 ) {
     BackHandler(onBack = onDismiss)
 
@@ -753,6 +757,41 @@ fun SettingsOverlayScreen(
                         }
                     }
 
+                    // 4.5 Help & Guided Tour
+                    item(key = "settings_help") {
+                        SettingsSectionTitle(stringResource(R.string.settings_section_help))
+                        Spacer(Modifier.height(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(28.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                SettingsActionRow(
+                                    icon = Icons.AutoMirrored.Rounded.HelpOutline,
+                                    title = stringResource(R.string.settings_replay_tutorial_title),
+                                    subtitle = stringResource(R.string.settings_replay_tutorial_subtitle),
+                                    onClick = {
+                                        performHaptic(HapticFeedbackType.TextHandleMove)
+                                        onReplayTutorial()
+                                    },
+                                    modifier = Modifier.testTag("settings_replay_tutorial_row"),
+                                )
+                                SettingsDivider()
+                                SettingsActionRow(
+                                    icon = Icons.Rounded.Explore,
+                                    title = stringResource(R.string.settings_replay_onboarding_title),
+                                    subtitle = stringResource(R.string.settings_replay_onboarding_subtitle),
+                                    onClick = {
+                                        performHaptic(HapticFeedbackType.TextHandleMove)
+                                        onReplayOnboarding()
+                                    },
+                                    modifier = Modifier.testTag("settings_replay_onboarding_row"),
+                                )
+                            }
+                        }
+                    }
+
                     // 5. About Pixel Funds Summary Card
                     item(key = "settings_about") {
                         SettingsSectionTitle(stringResource(R.string.settings_section_about))
@@ -1273,7 +1312,7 @@ fun ResetDayPickerDialog(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CurrencyPickerBottomSheet(
+fun CurrencyPickerBottomSheet(
     selectedCode: String,
     onDismiss: () -> Unit,
     onSelectCurrency: (String) -> Unit,

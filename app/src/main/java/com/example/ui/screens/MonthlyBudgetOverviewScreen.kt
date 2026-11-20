@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -42,10 +41,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -65,8 +65,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -84,16 +82,12 @@ import com.example.ui.MonthlyBudgetOverviewLoadState
 import com.example.ui.MonthlyBudgetOverviewUiState
 import com.example.ui.components.LocalAppCurrency
 import com.example.ui.components.LocalReduceMotion
-import com.example.ui.components.WavyProgressIndicator
 import com.example.ui.components.formatCurrency
 import com.example.ui.components.rememberPixelHaptics
 import com.example.ui.theme.ExpressiveMotion
 import com.example.ui.theme.LocalFinancialColors
 import com.example.ui.theme.budgetStatusPalette
-import kotlin.math.PI
-import kotlin.math.cos
 import kotlin.math.roundToInt
-import kotlin.math.sin
 
 @Composable
 fun MonthlyBudgetOverviewScreen(
@@ -110,6 +104,7 @@ fun MonthlyBudgetOverviewScreen(
 ) {
     val performHaptic = rememberPixelHaptics()
     var showLimitSheet by remember { mutableStateOf(false) }
+    var showAllCategories by remember { mutableStateOf(false) }
 
     if (showLimitSheet) {
         SetMonthlyBudgetLimitSheet(
@@ -134,7 +129,7 @@ fun MonthlyBudgetOverviewScreen(
             .fillMaxSize()
             .testTag("monthly_budget_overview_screen"),
         contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         if (headerContent != null) {
             item(key = "overview_external_header") {
@@ -142,11 +137,10 @@ fun MonthlyBudgetOverviewScreen(
             }
         }
 
-        // Period switcher + Set Budget Limit action
+        // Clean Inline Month Switcher
         item(key = "overview_period_bar") {
-            PeriodSelectorBar(
+            InlinePeriodSelectorRow(
                 periodTitle = state.periodTitle,
-                periodRangeLabel = state.periodRangeLabel,
                 isCurrentPeriod = state.isCurrentPeriod,
                 onPreviousMonth = {
                     performHaptic(HapticFeedbackType.TextHandleMove)
@@ -169,7 +163,7 @@ fun MonthlyBudgetOverviewScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(260.dp),
+                            .height(240.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
@@ -205,7 +199,7 @@ fun MonthlyBudgetOverviewScreen(
             }
 
             MonthlyBudgetOverviewLoadState.Ready -> {
-                // 1. Hero Room Spending vs Budget Limit Gauge Squircle
+                // 1. Clean Hero Gauge Card (Remaining + Spent vs Limit)
                 item(key = "overview_hero_gauge") {
                     MonthlyLimitComparisonHeroCard(
                         state = state,
@@ -216,162 +210,207 @@ fun MonthlyBudgetOverviewScreen(
                     )
                 }
 
-                // 2. Asymmetrical Bento Comparison Stats
-                item(key = "overview_bento_stats") {
-                    MonthlyComparisonBentoGrid(state = state)
+                // 2. Simple 2-Tile Pace Strip (Safe / day + Projected end)
+                item(key = "overview_pace_strip") {
+                    MonthlySimplePaceRow(state = state)
                 }
 
-                // 3. Category Breakdown from Room SQL JOIN
-                item(key = "overview_categories_header") {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 4.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                // 3. Grouped Category Breakdown Card
+                item(key = "overview_categories_section") {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Text(
                                 text = stringResource(R.string.overview_category_breakdown_title),
                                 style = MaterialTheme.typography.titleLarge,
                             )
-                            Text(
-                                text = stringResource(R.string.overview_category_breakdown_subtitle),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            TextButton(
+                                onClick = {
+                                    performHaptic(HapticFeedbackType.TextHandleMove)
+                                    onOpenCategoryLimits()
+                                },
+                                modifier = Modifier.testTag("overview_manage_categories_button"),
+                            ) {
+                                Text(stringResource(R.string.overview_tune_limits))
+                            }
+                        }
+
+                        if (state.categoryBreakdowns.isEmpty()) {
+                            OverviewEmptyStateCard(
+                                title = stringResource(R.string.overview_empty_title),
+                                subtitle = stringResource(R.string.overview_empty_subtitle),
+                                onLogExpense = onLogExpense,
                             )
-                        }
-                        TextButton(
-                            onClick = {
-                                performHaptic(HapticFeedbackType.TextHandleMove)
-                                onOpenCategoryLimits()
-                            },
-                            modifier = Modifier.testTag("overview_manage_categories_button"),
-                        ) {
-                            Text(stringResource(R.string.overview_tune_limits))
-                        }
-                    }
-                }
+                        } else {
+                            val displayed = if (showAllCategories) {
+                                state.categoryBreakdowns
+                            } else {
+                                state.categoryBreakdowns.take(4)
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(28.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                    displayed.forEachIndexed { index, row ->
+                                        OverviewCategoryRow(
+                                            item = row,
+                                            warningThreshold = state.warningThresholdRatio,
+                                        )
+                                        if (index < displayed.lastIndex) {
+                                            HorizontalDivider(
+                                                modifier = Modifier.padding(horizontal = 20.dp),
+                                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                                            )
+                                        }
+                                    }
 
-                if (state.categoryBreakdowns.isEmpty()) {
-                    item(key = "overview_no_categories") {
-                        OverviewEmptyStateCard(
-                            title = stringResource(R.string.overview_empty_title),
-                            subtitle = stringResource(R.string.overview_empty_subtitle),
-                            onLogExpense = onLogExpense,
-                        )
-                    }
-                } else {
-                    items(state.categoryBreakdowns, key = { "ov_cat_${it.categoryId}" }) { row ->
-                        OverviewCategoryComparisonCard(
-                            item = row,
-                            totalMonthlySpend = state.totalSpent,
-                        )
-                    }
-                }
-
-                // 4. Recent Month Expenses from Room
-                item(key = "overview_recent_header") {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 4.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.overview_recent_expenses_title),
-                            style = MaterialTheme.typography.titleLarge,
-                        )
-                        Text(
-                            text = stringResource(
-                                R.string.overview_expense_count_badge,
-                                state.transactionCount,
-                            ),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-
-                if (state.recentTransactions.isEmpty()) {
-                    item(key = "overview_empty_transactions") {
-                        OverviewEmptyStateCard(
-                            title = stringResource(R.string.overview_no_month_spend_title),
-                            subtitle = stringResource(R.string.overview_no_month_spend_subtitle),
-                            onLogExpense = onLogExpense,
-                        )
-                    }
-                } else {
-                    item(key = "overview_recent_card") {
-                        val categoryById = remember(state.categoryBreakdowns) {
-                            state.categoryBreakdowns.associateBy { it.categoryId }
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(28.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerLow,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("overview_recent_transactions_card"),
-                        ) {
-                            Column(modifier = Modifier.padding(vertical = 6.dp)) {
-                                state.recentTransactions.forEachIndexed { index, tx ->
-                                    val cat = categoryById[tx.categoryId]
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 18.dp, vertical = 12.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                            modifier = Modifier.weight(1f),
+                                    if (state.categoryBreakdowns.size > 4) {
+                                        HorizontalDivider(
+                                            modifier = Modifier.padding(horizontal = 20.dp),
+                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 4.dp),
+                                            contentAlignment = Alignment.Center,
                                         ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(40.dp)
-                                                    .clip(CircleShape)
-                                                    .background(
-                                                        (cat?.accentColor ?: MaterialTheme.colorScheme.primary)
-                                                            .copy(alpha = 0.16f)
-                                                    ),
-                                                contentAlignment = Alignment.Center,
+                                            TextButton(
+                                                onClick = {
+                                                    performHaptic(HapticFeedbackType.TextHandleMove)
+                                                    showAllCategories = !showAllCategories
+                                                },
+                                                modifier = Modifier.testTag("overview_toggle_all_categories_button"),
                                             ) {
-                                                Icon(
-                                                    imageVector = cat?.icon ?: Icons.AutoMirrored.Rounded.ReceiptLong,
-                                                    contentDescription = null,
-                                                    tint = cat?.accentColor ?: MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(20.dp),
-                                                )
-                                            }
-                                            Column {
                                                 Text(
-                                                    text = tx.merchantOrNote,
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                )
-                                                Text(
-                                                    text = "${cat?.categoryName ?: "Expense"} • ${tx.date.formatShort()}",
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    text = if (showAllCategories) {
+                                                        stringResource(R.string.overview_show_fewer_categories)
+                                                    } else {
+                                                        stringResource(
+                                                            R.string.overview_show_all_categories,
+                                                            state.categoryBreakdowns.size,
+                                                        )
+                                                    },
                                                 )
                                             }
                                         }
-                                        Spacer(Modifier.width(8.dp))
-                                        Text(
-                                            text = "-${formatCurrency(tx.amount, showCents = true)}",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.SemiBold,
-                                        )
                                     }
-                                    if (index < state.recentTransactions.lastIndex) {
-                                        HorizontalDivider(
-                                            modifier = Modifier.padding(horizontal = 18.dp),
-                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                                        )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 4. Compact Recent Expenses Card (Latest 3)
+                item(key = "overview_recent_section") {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.overview_recent_expenses_title),
+                                style = MaterialTheme.typography.titleLarge,
+                            )
+                            Text(
+                                text = stringResource(
+                                    R.string.overview_expense_count_badge,
+                                    state.transactionCount,
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+
+                        if (state.recentTransactions.isEmpty()) {
+                            OverviewEmptyStateCard(
+                                title = stringResource(R.string.overview_no_month_spend_title),
+                                subtitle = stringResource(R.string.overview_no_month_spend_subtitle),
+                                onLogExpense = onLogExpense,
+                            )
+                        } else {
+                            val categoryById = remember(state.categoryBreakdowns) {
+                                state.categoryBreakdowns.associateBy { it.categoryId }
+                            }
+                            val latestThree = remember(state.recentTransactions) {
+                                state.recentTransactions.take(3)
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(28.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("overview_recent_transactions_card"),
+                            ) {
+                                Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                    latestThree.forEachIndexed { index, tx ->
+                                        val cat = categoryById[tx.categoryId]
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 18.dp, vertical = 13.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                modifier = Modifier.weight(1f),
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(38.dp)
+                                                        .clip(CircleShape)
+                                                        .background(
+                                                            (cat?.accentColor ?: MaterialTheme.colorScheme.primary)
+                                                                .copy(alpha = 0.14f)
+                                                        ),
+                                                    contentAlignment = Alignment.Center,
+                                                ) {
+                                                    Icon(
+                                                        imageVector = cat?.icon ?: Icons.AutoMirrored.Rounded.ReceiptLong,
+                                                        contentDescription = null,
+                                                        tint = cat?.accentColor ?: MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(19.dp),
+                                                    )
+                                                }
+                                                Column {
+                                                    Text(
+                                                        text = tx.merchantOrNote,
+                                                        style = MaterialTheme.typography.titleMedium,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                    )
+                                                    Text(
+                                                        text = "${cat?.categoryName ?: "Expense"} • ${tx.date.formatShort()}",
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    )
+                                                }
+                                            }
+                                            Spacer(Modifier.width(8.dp))
+                                            Text(
+                                                text = "-${formatCurrency(tx.amount, showCents = true)}",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                            )
+                                        }
+                                        if (index < latestThree.lastIndex) {
+                                            HorizontalDivider(
+                                                modifier = Modifier.padding(horizontal = 18.dp),
+                                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -384,90 +423,74 @@ fun MonthlyBudgetOverviewScreen(
 }
 
 @Composable
-private fun PeriodSelectorBar(
+private fun InlinePeriodSelectorRow(
     periodTitle: String,
-    periodRangeLabel: String,
     isCurrentPeriod: Boolean,
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit,
     onJumpToCurrentMonth: () -> Unit,
 ) {
-    Surface(
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.fillMaxWidth(),
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Row(
+        IconButton(
+            onClick = onPreviousMonth,
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .size(48.dp)
+                .testTag("overview_prev_month_button"),
         ) {
-            FilledTonalIconButton(
-                onClick = onPreviousMonth,
-                modifier = Modifier
-                    .size(48.dp)
-                    .testTag("overview_prev_month_button"),
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
-                    contentDescription = stringResource(R.string.cd_previous_month),
-                )
-            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
+                contentDescription = stringResource(R.string.cd_previous_month),
+            )
+        }
 
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.weight(1f),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        ) {
+            Text(
+                text = periodTitle.ifBlank { stringResource(R.string.overview_title) },
+                style = MaterialTheme.typography.titleLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .testTag("overview_period_title"),
+            )
+            if (!isCurrentPeriod) {
+                Surface(
+                    onClick = onJumpToCurrentMonth,
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.testTag("overview_jump_current_button"),
                 ) {
                     Text(
-                        text = periodTitle.ifBlank { stringResource(R.string.overview_title) },
-                        style = MaterialTheme.typography.titleLarge,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.testTag("overview_period_title"),
-                    )
-                    if (!isCurrentPeriod) {
-                        Surface(
-                            onClick = onJumpToCurrentMonth,
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.testTag("overview_jump_current_button"),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.overview_today_badge),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            )
-                        }
-                    }
-                }
-                if (periodRangeLabel.isNotBlank()) {
-                    Text(
-                        text = periodRangeLabel,
+                        text = stringResource(R.string.overview_today_badge),
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                     )
                 }
             }
+        }
 
-            FilledTonalIconButton(
-                onClick = onNextMonth,
-                enabled = !isCurrentPeriod,
-                modifier = Modifier
-                    .size(48.dp)
-                    .testTag("overview_next_month_button"),
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                    contentDescription = stringResource(R.string.cd_next_month),
-                )
-            }
+        IconButton(
+            onClick = onNextMonth,
+            enabled = !isCurrentPeriod,
+            modifier = Modifier
+                .size(48.dp)
+                .testTag("overview_next_month_button"),
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                contentDescription = stringResource(R.string.cd_next_month),
+            )
         }
     }
 }
@@ -507,12 +530,9 @@ private fun MonthlyLimitComparisonHeroCard(
         MonthlyBudgetHealth.NO_LIMIT_SET -> Icons.AutoMirrored.Rounded.TrendingUp
     }
 
-    val surfaceStart = MaterialTheme.colorScheme.surfaceContainerHigh
-    val surfaceEnd = MaterialTheme.colorScheme.surfaceContainerLow
-
     Surface(
-        shape = RoundedCornerShape(36.dp),
-        color = surfaceStart,
+        shape = RoundedCornerShape(32.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier
             .fillMaxWidth()
             .testTag("overview_hero_card"),
@@ -520,19 +540,10 @@ private fun MonthlyLimitComparisonHeroCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            statusPalette.container.copy(alpha = 0.42f),
-                            surfaceStart,
-                            surfaceEnd,
-                        )
-                    )
-                )
                 .padding(22.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            // Top badge row: Health status pill + Edit Budget Limit button
+            // Top bar: Status pill + Set Limit button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -571,7 +582,7 @@ private fun MonthlyLimitComparisonHeroCard(
                     Icon(
                         imageVector = Icons.Rounded.Edit,
                         contentDescription = null,
-                        modifier = Modifier.size(16.dp),
+                        modifier = Modifier.size(15.dp),
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
@@ -581,28 +592,26 @@ private fun MonthlyLimitComparisonHeroCard(
                 }
             }
 
-            // Sweeping 240-degree Material 3 Expressive Spending vs Limit Arc Gauge
+            // Clean, airy arc gauge with just 2 focal readouts
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(196.dp),
+                    .height(176.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                val trackColor = MaterialTheme.colorScheme.surfaceContainerLowest
-                val paceMarkerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                val trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
                 Canvas(
                     modifier = Modifier
-                        .size(216.dp)
+                        .size(196.dp)
                         .testTag("overview_gauge_canvas"),
                 ) {
-                    val strokePx = 18.dp.toPx()
+                    val strokePx = 15.dp.toPx()
                     val inset = strokePx / 2f + 4.dp.toPx()
                     val arcSize = Size(size.width - inset * 2f, size.height - inset * 2f)
                     val topLeft = Offset(inset, inset)
                     val startAngle = 150f
                     val maxSweep = 240f
 
-                    // Track arc
                     drawArc(
                         color = trackColor,
                         startAngle = startAngle,
@@ -613,7 +622,6 @@ private fun MonthlyLimitComparisonHeroCard(
                         style = Stroke(width = strokePx, cap = StrokeCap.Round),
                     )
 
-                    // Active spending sweep
                     val activeSweep = (maxSweep * animatedRatio).coerceAtLeast(if (state.totalSpent > 0.0) 4f else 0f)
                     if (activeSweep > 0f) {
                         drawArc(
@@ -626,119 +634,85 @@ private fun MonthlyLimitComparisonHeroCard(
                             style = Stroke(width = strokePx, cap = StrokeCap.Round),
                         )
                     }
-
-                    // Elapsed-month pace tick on the arc perimeter
-                    if (state.isCurrentPeriod && state.budgetLimit > 0.0) {
-                        val paceAngleDeg = startAngle + (maxSweep * state.expectedPaceRatio)
-                        val rad = paceAngleDeg * (PI / 180.0)
-                        val radius = arcSize.width / 2f
-                        val cx = size.width / 2f
-                        val cy = size.height / 2f
-                        val innerR = radius - strokePx * 0.72f
-                        val outerR = radius + strokePx * 0.72f
-                        drawLine(
-                            color = paceMarkerColor,
-                            start = Offset(
-                                x = cx + (innerR * cos(rad)).toFloat(),
-                                y = cy + (innerR * sin(rad)).toFloat(),
-                            ),
-                            end = Offset(
-                                x = cx + (outerR * cos(rad)).toFloat(),
-                                y = cy + (outerR * sin(rad)).toFloat(),
-                            ),
-                            strokeWidth = 3.dp.toPx(),
-                            cap = StrokeCap.Round,
-                        )
-                    }
                 }
 
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                    modifier = Modifier.padding(top = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(top = 14.dp),
                 ) {
                     Text(
-                        text = if (state.budgetLimit > 0.0) "${state.usagePercent}%" else "—",
-                        style = MaterialTheme.typography.displayMedium,
-                        color = gaugeAccent,
-                        modifier = Modifier.testTag("overview_usage_percent"),
-                    )
-                    Text(
                         text = if (state.isOverBudget) {
-                            stringResource(
-                                R.string.overview_over_by_amount,
-                                formatCurrency(state.overBudgetAmount, showCents = true),
-                            )
+                            formatCurrency(state.overBudgetAmount, showCents = false)
                         } else {
-                            stringResource(
-                                R.string.overview_remaining_amount,
-                                formatCurrency(state.remainingAmount, showCents = true),
-                            )
+                            formatCurrency(state.remainingAmount, showCents = false)
                         },
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.headlineLarge,
                         color = if (state.isOverBudget) financialColors.danger else MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.testTag("overview_remaining_text"),
                     )
                     Text(
-                        text = if (state.hasCustomLimit) {
-                            stringResource(R.string.overview_limit_source_custom)
-                        } else {
-                            stringResource(R.string.overview_limit_source_categories)
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = if (state.budgetLimit > 0.0) {
+                            if (state.isOverBudget) "${state.usagePercent}% • over limit"
+                            else "${state.usagePercent}% used"
+                        } else "—",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = gaugeAccent,
+                        modifier = Modifier.testTag("overview_usage_percent"),
                     )
                 }
             }
 
-            // Side-by-side Spent vs Budget Limit pill strip
-            Surface(
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.85f),
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+            )
+
+            // Clean 2-column Spent vs Monthly Limit footer (no extra nested card)
+            Row(
                 modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 18.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = stringResource(R.string.overview_spent_this_month),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            text = formatCurrency(state.totalSpent, showCents = true),
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.testTag("overview_total_spent_value"),
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .width(1.dp)
-                            .height(34.dp)
-                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.overview_spent_this_month),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(start = 16.dp),
-                    ) {
-                        Text(
-                            text = stringResource(R.string.overview_budget_limit_label),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            text = formatCurrency(state.budgetLimit, showCents = true),
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.testTag("overview_budget_limit_value"),
-                        )
-                    }
+                    Text(
+                        text = formatCurrency(state.totalSpent, showCents = true),
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("overview_total_spent_value"),
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(34.dp)
+                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                )
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 16.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.overview_budget_limit_label),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = formatCurrency(state.budgetLimit, showCents = true),
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("overview_budget_limit_value"),
+                    )
                 }
             }
         }
@@ -746,7 +720,7 @@ private fun MonthlyLimitComparisonHeroCard(
 }
 
 @Composable
-private fun MonthlyComparisonBentoGrid(state: MonthlyBudgetOverviewUiState) {
+private fun MonthlySimplePaceRow(state: MonthlyBudgetOverviewUiState) {
     val financialColors = LocalFinancialColors.current
     val projectedOver = state.budgetLimit > 0.0 && state.projectedMonthEndSpend > state.budgetLimit
 
@@ -756,193 +730,133 @@ private fun MonthlyComparisonBentoGrid(state: MonthlyBudgetOverviewUiState) {
             .height(IntrinsicSize.Max),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // Left wider bento tile: Projected spend & Month pace
+        // Left: Safe / day
         Surface(
-            shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = RoundedCornerShape(26.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
             modifier = Modifier
-                .weight(1.25f)
+                .weight(1f)
                 .fillMaxHeight(),
         ) {
             Column(
                 modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.SpaceBetween,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        text = if (state.isCurrentPeriod) {
-                            stringResource(R.string.overview_projected_end_label)
-                        } else {
-                            stringResource(R.string.overview_final_month_total)
-                        },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        text = formatCurrency(state.projectedMonthEndSpend, showCents = false),
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = if (projectedOver) financialColors.danger else MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-
-                Spacer(Modifier.height(12.dp))
-
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        text = stringResource(
-                            R.string.overview_day_progress,
-                            state.daysElapsed,
-                            state.totalDaysInPeriod,
-                        ),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        text = if (state.isCurrentPeriod) {
-                            stringResource(R.string.overview_days_left_label, state.daysRemaining)
-                        } else {
-                            stringResource(R.string.overview_completed_period)
-                        },
-                        style = MaterialTheme.typography.labelLarge,
-                        color = if (projectedOver) financialColors.danger else financialColors.healthy,
-                    )
-                }
+                Text(
+                    text = stringResource(R.string.dashboard_safe_per_day),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = formatCurrency(state.safeDailyAllowance, showCents = false),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = if (state.isCurrentPeriod) {
+                        stringResource(R.string.overview_days_left_label, state.daysRemaining)
+                    } else {
+                        stringResource(R.string.overview_completed_period)
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
 
-        // Right stacked bento column: Safe / day + Daily average
-        Column(
+        // Right: Projected end
+        Surface(
+            shape = RoundedCornerShape(26.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
             modifier = Modifier
-                .weight(0.95f)
+                .weight(1f)
                 .fillMaxHeight(),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Surface(
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Text(
-                        text = stringResource(R.string.dashboard_safe_per_day),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
-                    )
-                    Text(
-                        text = formatCurrency(state.safeDailyAllowance, showCents = false),
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    )
-                }
-            }
-
-            Surface(
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Text(
-                        text = stringResource(R.string.insights_daily_avg),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        text = formatCurrency(state.dailyAverageSpend, showCents = true),
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
+                Text(
+                    text = if (state.isCurrentPeriod) {
+                        stringResource(R.string.overview_projected_end_label)
+                    } else {
+                        stringResource(R.string.overview_final_month_total)
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = formatCurrency(state.projectedMonthEndSpend, showCents = false),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = if (projectedOver) financialColors.danger else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = if (projectedOver) {
+                        stringResource(R.string.overview_status_over_limit)
+                    } else {
+                        stringResource(R.string.overview_status_on_track)
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (projectedOver) financialColors.danger else financialColors.healthy,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun OverviewCategoryComparisonCard(
+private fun OverviewCategoryRow(
     item: CategoryMonthlySpend,
-    totalMonthlySpend: Double,
+    warningThreshold: Float,
 ) {
-    val statusPalette = budgetStatusPalette(item.usageRatio)
+    val statusPalette = budgetStatusPalette(item.usageRatio, warningThreshold)
     val animatedProgress by animateFloatAsState(
         targetValue = item.usageRatio.coerceIn(0f, 1f),
         animationSpec = ExpressiveMotion.defaultSpatial(),
         label = "OverviewCatProgress_${item.categoryId}",
     )
-    val sharePercent = if (totalMonthlySpend > 0.0) {
-        ((item.spentAmount / totalMonthlySpend) * 100.0).roundToInt()
-    } else {
-        0
-    }
 
-    Surface(
-        shape = RoundedCornerShape(26.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    Column(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 18.dp, vertical = 14.dp)
             .testTag("overview_category_row_${item.categoryId}"),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.weight(1f),
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.weight(1f),
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(item.accentColor.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .background(item.accentColor.copy(alpha = 0.16f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = item.icon,
-                            contentDescription = null,
-                            tint = item.accentColor,
-                        )
-                    }
-                    Column {
-                        Text(
-                            text = item.categoryName,
-                            style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            text = stringResource(
-                                R.string.overview_category_meta,
-                                item.transactionCount,
-                                sharePercent,
-                            ),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    Icon(
+                        imageVector = item.icon,
+                        contentDescription = null,
+                        tint = item.accentColor,
+                        modifier = Modifier.size(19.dp),
+                    )
                 }
-
-                Column(horizontalAlignment = Alignment.End) {
+                Column {
                     Text(
-                        text = "${formatCurrency(item.spentAmount, false)} / ${formatCurrency(item.categoryLimit, false)}",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
+                        text = item.categoryName,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         text = if (item.remainingAmount >= 0.0) {
@@ -956,21 +870,30 @@ private fun OverviewCategoryComparisonCard(
                                 formatCurrency(-item.remainingAmount, false),
                             )
                         },
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelMedium,
                         color = statusPalette.accent,
                     )
                 }
             }
 
-            WavyProgressIndicator(
-                progress = animatedProgress,
-                color = statusPalette.accent,
-                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(10.dp),
+            Spacer(Modifier.width(8.dp))
+
+            Text(
+                text = "${formatCurrency(item.spentAmount, false)} / ${formatCurrency(item.categoryLimit, false)}",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
             )
         }
+
+        LinearProgressIndicator(
+            progress = { animatedProgress },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(CircleShape),
+            color = statusPalette.accent,
+            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        )
     }
 }
 
@@ -994,7 +917,7 @@ private fun OverviewEmptyStateCard(
         ) {
             Box(
                 modifier = Modifier
-                    .size(52.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center,

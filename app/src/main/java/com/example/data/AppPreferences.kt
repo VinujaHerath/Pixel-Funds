@@ -60,6 +60,8 @@ data class UserPreferences(
     val warningThresholdPercent: Int = 80,
     val includeFixedBillsInSafeDaily: Boolean = false,
     val compactCards: Boolean = false,
+    val hasCompletedOnboarding: Boolean = false,
+    val hasCompletedTutorial: Boolean = false,
 ) {
     val currency: CurrencyOption
         get() = WorldCurrencyCatalog.findByCode(currencyCode)
@@ -254,6 +256,8 @@ class AppPreferencesRepository(private val context: Context) {
         val WARNING_THRESHOLD = intPreferencesKey("warning_threshold_percent")
         val INCLUDE_FIXED_BILLS_SAFE = booleanPreferencesKey("include_fixed_bills_safe")
         val COMPACT_CARDS = booleanPreferencesKey("compact_cards")
+        val HAS_COMPLETED_ONBOARDING = booleanPreferencesKey("has_completed_onboarding")
+        val HAS_COMPLETED_TUTORIAL = booleanPreferencesKey("has_completed_tutorial")
     }
 
     val preferencesFlow: Flow<UserPreferences> = context.pixelFundsPrefsDataStore.data
@@ -276,6 +280,8 @@ class AppPreferencesRepository(private val context: Context) {
                 warningThresholdPercent = (prefs[Keys.WARNING_THRESHOLD] ?: 80).coerceIn(55, 95),
                 includeFixedBillsInSafeDaily = prefs[Keys.INCLUDE_FIXED_BILLS_SAFE] ?: false,
                 compactCards = prefs[Keys.COMPACT_CARDS] ?: false,
+                hasCompletedOnboarding = prefs[Keys.HAS_COMPLETED_ONBOARDING] ?: false,
+                hasCompletedTutorial = prefs[Keys.HAS_COMPLETED_TUTORIAL] ?: false,
             )
         }
 
@@ -321,6 +327,14 @@ class AppPreferencesRepository(private val context: Context) {
         context.pixelFundsPrefsDataStore.edit { it[Keys.COMPACT_CARDS] = enabled }
     }
 
+    suspend fun setOnboardingCompleted(completed: Boolean) {
+        context.pixelFundsPrefsDataStore.edit { it[Keys.HAS_COMPLETED_ONBOARDING] = completed }
+    }
+
+    suspend fun setTutorialCompleted(completed: Boolean) {
+        context.pixelFundsPrefsDataStore.edit { it[Keys.HAS_COMPLETED_TUTORIAL] = completed }
+    }
+
     suspend fun restorePreferences(prefs: UserPreferences) {
         val normalizedCurrency = WorldCurrencyCatalog.findByCode(prefs.currencyCode).code
         context.pixelFundsPrefsDataStore.edit { store ->
@@ -334,6 +348,7 @@ class AppPreferencesRepository(private val context: Context) {
             store[Keys.WARNING_THRESHOLD] = prefs.warningThresholdPercent.coerceIn(55, 95)
             store[Keys.INCLUDE_FIXED_BILLS_SAFE] = prefs.includeFixedBillsInSafeDaily
             store[Keys.COMPACT_CARDS] = prefs.compactCards
+            store[Keys.HAS_COMPLETED_ONBOARDING] = true
         }
     }
 }

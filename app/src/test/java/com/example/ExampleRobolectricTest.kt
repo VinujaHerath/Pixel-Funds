@@ -51,13 +51,52 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun mainActivityStartsLocallyAndRendersAllPrimaryFlows() {
+    fun mainActivityStartsWithOnboardingTutorialAndRendersPrimaryFlows() {
+        // First launch presents Onboarding flow
         composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithTag("onboarding_screen").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("onboarding_screen").assertIsDisplayed()
+
+        // Step through the 3 intro slides to Quick Setup, then launch the guided tour
+        repeat(3) {
+            composeRule.onNodeWithTag("onboarding_next_button").performClick()
+            composeRule.waitForIdle()
+        }
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("onboarding_start_tour_button").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("onboarding_start_tour_button").performClick()
+        composeRule.waitForIdle()
+
+        // Step through the 6-step interactive tutorial
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("tutorial_overlay").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("tutorial_overlay").assertIsDisplayed()
+        repeat(5) {
+            composeRule.onNodeWithTag("tutorial_next_button").performClick()
+            composeRule.waitForIdle()
+        }
+        composeRule.onNodeWithTag("tutorial_done_button").performClick()
+        composeRule.waitForIdle()
+
+        // Return to Home and verify decluttered Dashboard + Help button
+        composeRule.onNodeWithTag("nav_tab_home").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
             composeRule.onAllNodesWithTag("hero_balance_card").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("hero_balance_card").assertIsDisplayed()
+        composeRule.onNodeWithTag("home_tutorial_button").assertIsDisplayed()
 
-        // Navigate to Budgets tab -> Room-backed Monthly Budget Overview screen
+        // Verify replaying tutorial from Home ? button works and can be dismissed
+        composeRule.onNodeWithTag("home_tutorial_button").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("tutorial_overlay").assertIsDisplayed()
+        composeRule.onNodeWithTag("tutorial_skip_button").performClick()
+        composeRule.waitForIdle()
+
+        // Navigate to Budgets tab -> Decluttered Room-backed Monthly Budget Overview screen
         composeRule.onNodeWithTag("nav_tab_budgets").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
             composeRule.onAllNodesWithTag("overview_hero_card").fetchSemanticsNodes().isNotEmpty()
@@ -76,7 +115,9 @@ class ExampleRobolectricTest {
 
         // Navigate to previous month and jump back to current period
         composeRule.onNodeWithTag("overview_prev_month_button").performClick()
-        composeRule.waitForIdle()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("overview_jump_current_button").fetchSemanticsNodes().isNotEmpty()
+        }
         composeRule.onNodeWithTag("overview_jump_current_button").performClick()
         composeRule.waitForIdle()
 

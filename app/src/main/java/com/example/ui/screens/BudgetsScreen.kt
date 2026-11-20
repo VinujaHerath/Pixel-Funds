@@ -130,15 +130,13 @@ fun BudgetsScreen(
                         },
                         style = MaterialTheme.typography.headlineMedium,
                     )
-                    Text(
-                        text = if (activeSection == BudgetsSection.OVERVIEW) {
-                            stringResource(R.string.overview_category_breakdown_subtitle)
-                        } else {
-                            stringResource(R.string.budgets_subtitle)
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    if (activeSection == BudgetsSection.CATEGORIES) {
+                        Text(
+                            text = stringResource(R.string.budgets_subtitle),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 if (activeSection == BudgetsSection.CATEGORIES) {
                     Spacer(Modifier.width(12.dp))

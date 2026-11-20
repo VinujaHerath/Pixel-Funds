@@ -80,16 +80,32 @@ class CadenceViewModel(
     private val _events = MutableSharedFlow<CadenceEvent>(extraBufferCapacity = 4)
     val events: SharedFlow<CadenceEvent> = _events.asSharedFlow()
 
+    private val _preferencesLoaded = MutableStateFlow(false)
+    val preferencesLoaded: StateFlow<Boolean> = _preferencesLoaded
+
+    private val _isOnboardingForced = MutableStateFlow(false)
+    val isOnboardingForced: StateFlow<Boolean> = _isOnboardingForced
+
+    private val _tutorialStepIndex = MutableStateFlow<Int?>(null)
+    val tutorialStepIndex: StateFlow<Int?> = _tutorialStepIndex
+
     val userPreferences: StateFlow<UserPreferences> = preferencesRepository.preferencesFlow
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000L),
+            started = SharingStarted.Eagerly,
             initialValue = UserPreferences(),
         )
 
     private var lastDeletedTransaction: Transaction? = null
 
     init {
+        viewModelScope.launch {
+            preferencesRepository.preferencesFlow.collect {
+                if (!_preferencesLoaded.value) {
+                    _preferencesLoaded.value = true
+                }
+            }
+        }
         viewModelScope.launch {
             val result = repository.ensureInitialSeed()
             result.onFailure { err ->
@@ -266,6 +282,55 @@ class CadenceViewModel(
 
     fun updateCompactCards(enabled: Boolean) {
         viewModelScope.launch { preferencesRepository.setCompactCards(enabled) }
+    }
+
+    // --- Onboarding & Interactive Tutorial ---
+
+    fun completeOnboarding(startTutorial: Boolean, keepSampleData: Boolean) {
+        _isOnboardingForced.value = false
+        if (startTutorial) {
+            _tutorialStepIndex.value = 0
+        }
+        viewModelScope.launch {
+            preferencesRepository.setOnboardingCompleted(true)
+            if (!keepSampleData && uiState.value.hasSampleData) {
+                repository.clearSampleData()
+            }
+        }
+    }
+
+    fun replayOnboarding() {
+        localControls.update { it.copy(isAccountSheetOpen = false) }
+        _tutorialStepIndex.value = null
+        _isOnboardingForced.value = true
+    }
+
+    fun startTutorial() {
+        localControls.update { it.copy(isAccountSheetOpen = false, expandedCategoryId = null) }
+        _tutorialStepIndex.value = 0
+    }
+
+    fun nextTutorialStep(totalSteps: Int) {
+        val current = _tutorialStepIndex.value ?: return
+        if (current + 1 < totalSteps) {
+            _tutorialStepIndex.value = current + 1
+        } else {
+            dismissTutorial()
+        }
+    }
+
+    fun previousTutorialStep() {
+        val current = _tutorialStepIndex.value ?: return
+        if (current > 0) {
+            _tutorialStepIndex.value = current - 1
+        }
+    }
+
+    fun dismissTutorial() {
+        _tutorialStepIndex.value = null
+        viewModelScope.launch {
+            preferencesRepository.setTutorialCompleted(true)
+        }
     }
 
     fun retrySync() {

@@ -26,12 +26,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.automirrored.rounded.HelpOutline
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.rounded.TrendingDown
+import androidx.compose.material.icons.automirrored.rounded.TrendingUp
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CalendarToday
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.TrendingDown
-import androidx.compose.material.icons.rounded.TrendingUp
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -51,7 +54,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -60,8 +62,8 @@ import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.BudgetCategory
 import com.example.data.CadenceUiState
-import com.example.ui.components.WavyProgressIndicator
 import com.example.ui.components.formatCurrency
+import com.example.ui.components.rememberPixelHaptics
 import com.example.ui.theme.ExpressiveMotion
 import com.example.ui.theme.budgetStatusPalette
 
@@ -76,10 +78,11 @@ fun DashboardScreen(
     onViewAllActivity: () -> Unit,
     onOpenBillsAndSubs: () -> Unit,
     onOpenAccount: () -> Unit,
+    onOpenTutorial: () -> Unit,
     onClearSampleData: () -> Unit,
     onChangeResetDay: (Int) -> Unit,
 ) {
-    val performHaptic = com.example.ui.components.rememberPixelHaptics()
+    val performHaptic = rememberPixelHaptics()
     var showCycleInfoDialog by remember { mutableStateOf(false) }
     var showResetDayPicker by remember { mutableStateOf(false) }
 
@@ -168,18 +171,18 @@ fun DashboardScreen(
             .fillMaxSize()
             .testTag("dashboard_list"),
         contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(if (state.compactCards) 10.dp else 14.dp),
+        verticalArrangement = Arrangement.spacedBy(if (state.compactCards) 14.dp else 20.dp),
     ) {
-        // Editorial Greeting Header
+        // 1. Minimal Editorial Header
         item(key = "header") {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                     Text(
                         text = state.budgetPeriodTitle,
                         style = MaterialTheme.typography.labelLarge,
@@ -195,37 +198,32 @@ fun DashboardScreen(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Surface(
                         onClick = {
                             performHaptic(HapticFeedbackType.TextHandleMove)
-                            showCycleInfoDialog = true
+                            onOpenTutorial()
                         },
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        modifier = Modifier.testTag("month_cycle_pill"),
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("home_tutorial_button"),
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                             Icon(
-                                imageVector = Icons.Rounded.CalendarToday,
-                                contentDescription = stringResource(R.string.cd_month_cycle_info),
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(14.dp),
-                            )
-                            Text(
-                                text = "${state.daysRemaining}d left",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurface,
+                                imageVector = Icons.AutoMirrored.Rounded.HelpOutline,
+                                contentDescription = stringResource(R.string.cd_help_tutorial),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(22.dp),
                             )
                         }
                     }
+
                     Surface(
                         onClick = {
                             performHaptic(HapticFeedbackType.TextHandleMove)
@@ -242,6 +240,7 @@ fun DashboardScreen(
                                 imageVector = Icons.Rounded.Settings,
                                 contentDescription = stringResource(R.string.cd_account),
                                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.size(22.dp),
                             )
                         }
                     }
@@ -249,18 +248,18 @@ fun DashboardScreen(
             }
         }
 
-        // Optional Sample Data Banner with One-Tap Clear
+        // Slim Sample Data Notice (only shown if demo data is present)
         if (state.hasSampleData) {
             item(key = "sample_banner") {
                 Surface(
-                    shape = RoundedCornerShape(22.dp),
+                    shape = CircleShape,
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                            .padding(start = 16.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
@@ -268,12 +267,14 @@ fun DashboardScreen(
                             imageVector = Icons.Rounded.AutoAwesome,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(16.dp),
                         )
                         Text(
                             text = stringResource(R.string.dashboard_sample_banner),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
                         TextButton(
@@ -293,264 +294,131 @@ fun DashboardScreen(
             }
         }
 
-        // 1. Hero Remaining-Budget Squircle
+        // 2. Unified Hero Balance Squircle (Remaining + Cycle Pill + Clean Progress)
         item(key = "hero_balance") {
-            HeroBalanceSquircle(state = state)
+            HeroBalanceSquircle(
+                state = state,
+                onCyclePillClick = {
+                    performHaptic(HapticFeedbackType.TextHandleMove)
+                    showCycleInfoDialog = true
+                },
+            )
         }
 
-        // 2. Asymmetrical Bento Grid: Spend Pace (1.3f) + Stacked Micro-Stats (0.95f)
-        item(key = "bento_pace_row") {
+        // 3. Calm 2-Tile Glance Strip: Safe / Day + Next Bill
+        item(key = "glance_strip") {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(IntrinsicSize.Max),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                SpendPaceBentoCard(
+                SafeDailyPaceTile(
                     state = state,
                     modifier = Modifier
-                        .weight(1.32f)
+                        .weight(1f)
                         .fillMaxHeight(),
                 )
-                Column(
-                    modifier = Modifier
-                        .weight(0.93f)
-                        .fillMaxHeight(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    QuickStatPillTile(
-                        label = stringResource(R.string.dashboard_spent_label),
-                        value = formatCurrency(state.totalSpentThisMonth, showCents = false),
-                        subtext = null,
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        contentColor = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                    )
-                    QuickStatPillTile(
-                        label = stringResource(R.string.dashboard_safe_per_day),
-                        value = formatCurrency(state.safeDailySpend, showCents = false),
-                        subtext = if (state.includeFixedBillsInSafeDaily && state.upcomingDueThisCycleTotal > 0.0) {
-                            stringResource(R.string.dashboard_bills_reserved)
-                        } else null,
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                    )
-                }
-            }
-        }
-
-        // 2.5 Side-by-side Recurring Bills & Subscriptions Snapshot Card
-        item(key = "recurring_subs_snapshot") {
-            DashboardBillsAndSubsBentoCard(
-                state = state,
-                onClick = {
-                    performHaptic(HapticFeedbackType.TextHandleMove)
-                    onOpenBillsAndSubs()
-                },
-            )
-        }
-
-        // 3. Top Categories Section Header
-        item(key = "top_categories_header") {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 6.dp, start = 4.dp, end = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.dashboard_top_categories),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                TextButton(
+                NextBillTile(
+                    state = state,
                     onClick = {
                         performHaptic(HapticFeedbackType.TextHandleMove)
-                        onViewAllActivity()
+                        onOpenBillsAndSubs()
                     },
-                    modifier = Modifier.testTag("view_all_activity_button"),
-                ) {
-                    Text(stringResource(R.string.dashboard_view_activity))
-                    Spacer(Modifier.width(4.dp))
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                )
             }
         }
 
-        // 4. Top Categories 2x2 Bento Grid
-        item(key = "top_categories_grid") {
+        // 4. Clean Top Categories List (Single Grouped Card, Top 3)
+        item(key = "top_categories_section") {
             val topCategories = remember(state.categories, state.transactions, state.today, state.budgetResetDay) {
                 state.categories
                     .sortedByDescending { state.spentForCategoryThisMonth(it.id) }
-                    .take(4)
+                    .take(3)
             }
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                topCategories.chunked(2).forEach { pair ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        pair.forEach { cat ->
-                            CategoryBentoTile(
-                                category = cat,
-                                spent = state.spentForCategoryThisMonth(cat.id),
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = animatedVisibilityScope,
-                                onClick = {
-                                    performHaptic(HapticFeedbackType.TextHandleMove)
-                                    onCategoryClick(cat)
-                                },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                        if (pair.size == 1) {
-                            Spacer(Modifier.weight(1f))
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
-@Composable
-private fun DashboardBillsAndSubsBentoCard(
-    state: CadenceUiState,
-    onClick: () -> Unit,
-) {
-    val activeBills = remember(state.recurringItems) { state.recurringBills.count { it.active } }
-    val activeSubs = remember(state.recurringItems) { state.subscriptions.count { it.active } }
-    val nextBill = state.nextUpcomingBill
-
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("dashboard_bills_subs_card"),
-    ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.dashboard_fixed_commitments),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Text(
-                        text = stringResource(R.string.dashboard_manage),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
+                        text = stringResource(R.string.dashboard_top_categories),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    TextButton(
+                        onClick = {
+                            performHaptic(HapticFeedbackType.TextHandleMove)
+                            onViewAllActivity()
+                        },
+                        modifier = Modifier.testTag("view_all_activity_button"),
                     ) {
-                        Text(
-                            text = "${stringResource(R.string.recurring_bills_short)} ($activeBills)",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Text(
-                            text = "${formatCurrency(state.monthlyRecurringBillsTotal, showCents = false)}/mo",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                        Text(stringResource(R.string.dashboard_see_all))
+                        Spacer(Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
                         )
                     }
                 }
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
+
+                if (topCategories.isNotEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(28.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(
-                            text = "${stringResource(R.string.subscriptions_title)} ($activeSubs)",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.tertiary,
-                        )
-                        Text(
-                            text = "${formatCurrency(state.monthlySubscriptionsTotal, showCents = false)}/mo",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                            topCategories.forEachIndexed { index, category ->
+                                CategorySummaryRow(
+                                    category = category,
+                                    spent = state.spentForCategoryThisMonth(category.id),
+                                    warningThreshold = state.warningThresholdRatio,
+                                    sharedTransitionScope = sharedTransitionScope,
+                                    animatedVisibilityScope = animatedVisibilityScope,
+                                    onClick = {
+                                        performHaptic(HapticFeedbackType.TextHandleMove)
+                                        onCategoryClick(category)
+                                    },
+                                )
+                                if (index < topCategories.lastIndex) {
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(horizontal = 20.dp),
+                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
-            }
-
-            if (nextBill != null) {
-                val daysUntil = (nextBill.nextDueDate.toEpochDay() - state.today.toEpochDay()).toInt()
-                val dueText = when {
-                    daysUntil < 0 -> stringResource(R.string.recurring_overdue, -daysUntil)
-                    daysUntil == 0 -> stringResource(R.string.recurring_due_today)
-                    daysUntil == 1 -> stringResource(R.string.recurring_due_tomorrow)
-                    else -> "in ${daysUntil}d (${nextBill.nextDueDate.formatShort()})"
-                }
-                Text(
-                    text = "Next due: ${nextBill.name} • ${formatCurrency(nextBill.amount, showCents = true)} • $dueText",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
         }
     }
 }
 
 @Composable
-private fun HeroBalanceSquircle(state: CadenceUiState) {
+private fun HeroBalanceSquircle(
+    state: CadenceUiState,
+    onCyclePillClick: () -> Unit,
+) {
     val isNegative = state.remainingBudget < 0.0
     val animatedRemaining by animateFloatAsState(
         targetValue = state.remainingBudget.toFloat(),
         animationSpec = ExpressiveMotion.slowSpatial(),
         label = "HeroBalanceSpring",
+    )
+    val animatedProgress by animateFloatAsState(
+        targetValue = state.overallSpendRatio.coerceIn(0f, 1f),
+        animationSpec = ExpressiveMotion.slowSpatial(),
+        label = "HeroSpendProgress",
     )
     val containerColor by animateColorAsState(
         targetValue = if (isNegative) MaterialTheme.colorScheme.errorContainer
@@ -565,13 +433,13 @@ private fun HeroBalanceSquircle(state: CadenceUiState) {
         label = "HeroContentColor",
     )
     val glowColor = if (isNegative) MaterialTheme.colorScheme.error.copy(alpha = 0.14f)
-    else MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+    else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("hero_balance_card"),
-        shape = RoundedCornerShape(36.dp),
+        shape = RoundedCornerShape(34.dp),
         color = containerColor,
     ) {
         Column(
@@ -581,22 +449,55 @@ private fun HeroBalanceSquircle(state: CadenceUiState) {
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(glowColor, Color.Transparent),
-                            center = Offset(size.width * 0.88f, size.height * 0.15f),
-                            radius = size.maxDimension * 0.65f,
+                            center = Offset(size.width * 0.88f, size.height * 0.14f),
+                            radius = size.maxDimension * 0.68f,
                         ),
-                        radius = size.maxDimension * 0.65f,
-                        center = Offset(size.width * 0.88f, size.height * 0.15f),
+                        radius = size.maxDimension * 0.68f,
+                        center = Offset(size.width * 0.88f, size.height * 0.14f),
                     )
                 }
                 .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(
-                text = if (isNegative) stringResource(R.string.dashboard_over_budget)
-                else stringResource(R.string.dashboard_remaining_to_spend),
-                style = MaterialTheme.typography.titleMedium,
-                color = contentColor.copy(alpha = 0.80f),
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = if (isNegative) stringResource(R.string.dashboard_over_budget)
+                    else stringResource(R.string.dashboard_remaining_to_spend),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = contentColor.copy(alpha = 0.82f),
+                )
+
+                Surface(
+                    onClick = onCyclePillClick,
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.34f),
+                    modifier = Modifier.testTag("month_cycle_pill"),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.CalendarToday,
+                            contentDescription = stringResource(R.string.cd_month_cycle_info),
+                            tint = contentColor,
+                            modifier = Modifier.size(13.dp),
+                        )
+                        Text(
+                            text = "${state.daysRemaining}d left",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = contentColor,
+                        )
+                    }
+                }
+            }
+
             Text(
                 text = formatCurrency(animatedRemaining.toDouble(), showCents = true),
                 style = MaterialTheme.typography.displayLarge,
@@ -604,19 +505,39 @@ private fun HeroBalanceSquircle(state: CadenceUiState) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.34f),
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LinearProgressIndicator(
+                    progress = { animatedProgress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(CircleShape),
+                    color = contentColor,
+                    trackColor = contentColor.copy(alpha = 0.18f),
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "${(state.overallSpendRatio * 100).toInt()}% of ${formatCurrency(state.totalMonthlyBudget, showCents = false)} used",
-                        style = MaterialTheme.typography.labelMedium,
+                        text = stringResource(
+                            R.string.dashboard_spent_of_budget,
+                            formatCurrency(state.totalSpentThisMonth, showCents = false),
+                            formatCurrency(state.totalMonthlyBudget, showCents = false),
+                        ),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = contentColor.copy(alpha = 0.84f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = "${(state.overallSpendRatio * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
                         color = contentColor,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     )
                 }
             }
@@ -625,121 +546,135 @@ private fun HeroBalanceSquircle(state: CadenceUiState) {
 }
 
 @Composable
-private fun SpendPaceBentoCard(
+private fun SafeDailyPaceTile(
     state: CadenceUiState,
     modifier: Modifier = Modifier,
 ) {
     val paceDelta = state.overallSpendRatio - state.monthElapsedRatio
     val isAhead = paceDelta > 0.05f
     val statusPalette = budgetStatusPalette(
-        if (isAhead) (0.76f + paceDelta).coerceAtMost(1f) else 0.40f
-    )
-    val animatedAccent by animateColorAsState(
-        targetValue = statusPalette.accent,
-        animationSpec = ExpressiveMotion.fastEffects(),
-        label = "PaceAccentColor",
-    )
-    val animatedSpend by animateFloatAsState(
-        targetValue = state.overallSpendRatio.coerceIn(0f, 1f),
-        animationSpec = ExpressiveMotion.slowSpatial(),
-        label = "PaceProgressSpring",
+        ratio = if (isAhead) (0.82f + paceDelta).coerceAtMost(1f) else 0.35f,
+        warningThreshold = state.warningThresholdRatio,
     )
 
     Surface(
         modifier = modifier.testTag("spend_pace_card"),
-        shape = RoundedCornerShape(28.dp),
+        shape = RoundedCornerShape(26.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(
             modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.SpaceBetween,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Surface(shape = CircleShape, color = statusPalette.container) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Icon(
-                            imageVector = if (isAhead) Icons.Rounded.TrendingUp else Icons.Rounded.TrendingDown,
-                            contentDescription = null,
-                            tint = statusPalette.onContainer,
-                            modifier = Modifier.size(14.dp),
-                        )
-                        Text(
-                            text = if (isAhead) stringResource(R.string.dashboard_spending_fast)
-                            else stringResource(R.string.dashboard_on_pace),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = statusPalette.onContainer,
-                        )
-                    }
-                }
-                Text(
-                    text = stringResource(R.string.dashboard_monthly_pace),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
+            Text(
+                text = stringResource(R.string.dashboard_safe_per_day),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = formatCurrency(state.safeDailySpend, showCents = false),
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Icon(
+                    imageVector = if (isAhead) Icons.AutoMirrored.Rounded.TrendingUp
+                    else Icons.AutoMirrored.Rounded.TrendingDown,
+                    contentDescription = null,
+                    tint = statusPalette.accent,
+                    modifier = Modifier.size(16.dp),
                 )
                 Text(
-                    text = "Day ${state.cycleDayElapsed} of ${state.cycleTotalDays} (${(state.monthElapsedRatio * 100).toInt()}%)",
+                    text = if (isAhead) stringResource(R.string.dashboard_spending_fast)
+                    else stringResource(R.string.dashboard_on_pace),
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = statusPalette.accent,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-
-            Spacer(Modifier.height(16.dp))
-
-            WavyProgressIndicator(
-                progress = animatedSpend,
-                color = animatedAccent,
-                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                markerFraction = state.monthElapsedRatio,
-                markerColor = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(22.dp),
-            )
         }
     }
 }
 
 @Composable
-private fun QuickStatPillTile(
-    label: String,
-    value: String,
-    subtext: String?,
-    containerColor: Color,
-    contentColor: Color,
+private fun NextBillTile(
+    state: CadenceUiState,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val nextBill = state.nextUpcomingBill
+
     Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(24.dp),
-        color = containerColor,
+        onClick = onClick,
+        modifier = modifier.testTag("dashboard_bills_subs_card"),
+        shape = RoundedCornerShape(26.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = contentColor.copy(alpha = 0.74f),
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = value,
-                style = MaterialTheme.typography.titleLarge,
-                color = contentColor,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (!subtext.isNullOrBlank()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    text = subtext,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = contentColor.copy(alpha = 0.72f),
+                    text = stringResource(R.string.dashboard_upcoming_bills),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+
+            if (nextBill != null) {
+                val daysUntil = (nextBill.nextDueDate.toEpochDay() - state.today.toEpochDay()).toInt()
+                val dueLabel = when {
+                    daysUntil < 0 -> stringResource(R.string.recurring_overdue, -daysUntil)
+                    daysUntil == 0 -> stringResource(R.string.recurring_due_today)
+                    daysUntil == 1 -> stringResource(R.string.recurring_due_tomorrow)
+                    else -> stringResource(R.string.recurring_due_in_days, daysUntil)
+                }
+                Text(
+                    text = formatCurrency(nextBill.amount, showCents = false),
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "${nextBill.name} • $dueLabel",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            } else {
+                Text(
+                    text = stringResource(R.string.dashboard_no_upcoming_bills),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = stringResource(
+                        R.string.dashboard_fixed_per_month,
+                        formatCurrency(state.totalMonthlyFixedCommitments, showCents = false),
+                    ),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -750,55 +685,56 @@ private fun QuickStatPillTile(
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-private fun CategoryBentoTile(
+private fun CategorySummaryRow(
     category: BudgetCategory,
     spent: Double,
+    warningThreshold: Float,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     val ratio = if (category.monthlyLimit > 0.0) (spent / category.monthlyLimit).toFloat().coerceAtLeast(0f) else 0f
-    val statusPalette = budgetStatusPalette(ratio)
+    val statusPalette = budgetStatusPalette(ratio, warningThreshold)
     val animatedAccent by animateColorAsState(
         targetValue = statusPalette.accent,
         animationSpec = ExpressiveMotion.fastEffects(),
-        label = "TileAccent_${category.id}",
+        label = "RowAccent_${category.id}",
     )
     val animatedRatio by animateFloatAsState(
         targetValue = ratio.coerceIn(0f, 1f),
         animationSpec = ExpressiveMotion.defaultSpatial(),
-        label = "TileProgress_${category.id}",
+        label = "RowProgress_${category.id}",
     )
 
     with(sharedTransitionScope) {
-        Surface(
-            modifier = modifier
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
                 .sharedBounds(
                     sharedContentState = rememberSharedContentState(key = "cat-card-${category.id}"),
                     animatedVisibilityScope = animatedVisibilityScope,
                     boundsTransform = { _, _ -> ExpressiveMotion.defaultSpatial() },
                 )
-                .clip(RoundedCornerShape(28.dp))
                 .clickable(onClick = onClick)
+                .padding(horizontal = 18.dp, vertical = 14.dp)
                 .testTag("category_bento_tile_${category.id}"),
-            shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.surfaceContainer,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.weight(1f),
                 ) {
                     Box(
                         modifier = Modifier
                             .size(40.dp)
                             .clip(CircleShape)
-                            .background(category.accentColor.copy(alpha = 0.16f)),
+                            .background(category.accentColor.copy(alpha = 0.15f)),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
@@ -808,37 +744,42 @@ private fun CategoryBentoTile(
                             modifier = Modifier.size(20.dp),
                         )
                     }
-                    Text(
-                        text = "${(ratio * 100).toInt()}%",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = animatedAccent,
-                    )
+                    Column {
+                        Text(
+                            text = category.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = "${formatCurrency(spent, false)} of ${formatCurrency(category.monthlyLimit, false)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
-                Column {
-                    Text(
-                        text = category.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = "${formatCurrency(spent, false)} / ${formatCurrency(category.monthlyLimit, false)}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                LinearProgressIndicator(
-                    progress = { animatedRatio },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(CircleShape),
+
+                Spacer(Modifier.width(8.dp))
+
+                Text(
+                    text = "${(ratio * 100).toInt()}%",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
                     color = animatedAccent,
-                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                 )
             }
+
+            LinearProgressIndicator(
+                progress = { animatedRatio },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(CircleShape),
+                color = animatedAccent,
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            )
         }
     }
 }
