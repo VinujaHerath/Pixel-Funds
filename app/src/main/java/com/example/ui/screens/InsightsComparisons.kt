@@ -20,9 +20,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.TrendingDown
-import androidx.compose.material.icons.rounded.TrendingFlat
-import androidx.compose.material.icons.rounded.TrendingUp
+import androidx.compose.material.icons.automirrored.rounded.TrendingDown
+import androidx.compose.material.icons.automirrored.rounded.TrendingFlat
+import androidx.compose.material.icons.automirrored.rounded.TrendingUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -1417,9 +1417,9 @@ private fun ComparisonTotalsHero(
             ) {
                 Icon(
                     imageVector = when {
-                        isLower -> Icons.Rounded.TrendingDown
-                        isHigher -> Icons.Rounded.TrendingUp
-                        else -> Icons.Rounded.TrendingFlat
+                        isLower -> Icons.AutoMirrored.Rounded.TrendingDown
+                        isHigher -> Icons.AutoMirrored.Rounded.TrendingUp
+                        else -> Icons.AutoMirrored.Rounded.TrendingFlat
                     },
                     contentDescription = null,
                     tint = badgeFg,

@@ -37,9 +37,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Backspace
+import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.CalendarToday
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Subscriptions
 import androidx.compose.material3.BottomSheetDefaults
@@ -254,7 +254,7 @@ fun ExpenseEntryBottomSheet(
                     ) {
                         ScheduleTypeSegment(
                             label = stringResource(R.string.entry_one_time),
-                            icon = Icons.Rounded.ReceiptLong,
+                            icon = Icons.AutoMirrored.Rounded.ReceiptLong,
                             selected = scheduleKind == null,
                             onClick = {
                                 performHaptic(HapticFeedbackType.TextHandleMove)

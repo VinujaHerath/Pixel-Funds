@@ -30,13 +30,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.Autorenew
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -92,7 +91,6 @@ private val TopSegmentedShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24
 private val BottomSegmentedShape = RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
 private val MiddleSegmentedShape = RoundedCornerShape(6.dp)
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TransactionsScreen(
     state: CadenceUiState,
@@ -134,7 +132,7 @@ fun TransactionsScreen(
             ) {
                 ActivityModePill(
                     label = stringResource(R.string.activity_tab_transactions),
-                    icon = Icons.Rounded.ReceiptLong,
+                    icon = Icons.AutoMirrored.Rounded.ReceiptLong,
                     selected = activeSection == ActivitySection.TRANSACTIONS,
                     onClick = {
                         performHaptic(HapticFeedbackType.TextHandleMove)
@@ -209,7 +207,6 @@ fun TransactionsScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TransactionsFeedContent(
     state: CadenceUiState,
@@ -335,7 +332,7 @@ private fun TransactionsFeedContent(
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
-                                imageVector = Icons.Rounded.ReceiptLong,
+                                imageVector = Icons.AutoMirrored.Rounded.ReceiptLong,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
                                 modifier = Modifier.size(28.dp),

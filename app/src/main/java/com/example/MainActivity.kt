@@ -117,8 +117,8 @@ class MainActivity : ComponentActivity() {
     private fun enablePixelSmoothDisplay() {
         val currentWindow = window ?: return
 
-        // Android 14+ (API 34+): keep LTPO displays (Pixel Pro, etc.) boosted to peak 120Hz on touch/scroll
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        // Android 15+ (API 35+): keep LTPO displays (Pixel Pro, etc.) boosted to peak 120Hz on touch/scroll
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.VANILLA_ICE_CREAM) {
             runCatching {
                 if (!currentWindow.frameRateBoostOnTouchEnabled) {
                     currentWindow.frameRateBoostOnTouchEnabled = true

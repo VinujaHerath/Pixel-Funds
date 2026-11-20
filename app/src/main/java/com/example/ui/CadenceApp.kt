@@ -176,7 +176,7 @@ fun CadenceApp(
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val isExpandedWidth = maxWidth >= 720.dp
+        val isExpandedWidth = this.maxWidth >= 720.dp
 
         Box(modifier = Modifier.fillMaxSize()) {
             Scaffold(
