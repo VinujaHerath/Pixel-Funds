@@ -1,6 +1,7 @@
 package com.example.data
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.AutoGraph
 import androidx.compose.material.icons.rounded.CardGiftcard
 import androidx.compose.material.icons.rounded.Checkroom
@@ -14,7 +15,6 @@ import androidx.compose.material.icons.rounded.LocalGroceryStore
 import androidx.compose.material.icons.rounded.MedicalServices
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Pets
-import androidx.compose.material.icons.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.Restaurant
 import androidx.compose.material.icons.rounded.Savings
 import androidx.compose.material.icons.rounded.School
@@ -34,7 +34,7 @@ import java.util.TimeZone
 enum class CadenceTab(val label: String, val icon: ImageVector) {
     Home("Home", Icons.Rounded.SpaceDashboard),
     Budgets("Budgets", Icons.Rounded.DonutLarge),
-    Activity("Activity", Icons.Rounded.ReceiptLong),
+    Activity("Activity", Icons.AutoMirrored.Rounded.ReceiptLong),
     Insights("Insights", Icons.Rounded.AutoGraph),
 }
 
@@ -348,6 +348,14 @@ data class RecurringItem(
         get() = cadence.monthlyEquivalent(amount)
 }
 
+@Immutable
+data class MonthlyTrendPoint(
+    val year: Int,
+    val month: Int,
+    val shortLabel: String,
+    val totalSpent: Double,
+)
+
 sealed interface WorkspaceLoadState {
     data object Loading : WorkspaceLoadState
     data object Ready : WorkspaceLoadState
@@ -492,4 +500,26 @@ data class CadenceUiState(
                     categories.find { it.id == tx.categoryId }?.name?.contains(searchQuery, ignoreCase = true) == true)
         }
         .sortedWith(compareByDescending<Transaction> { it.date }.thenByDescending { it.createdAtSeconds })
+
+    /**
+     * Computes monthly spending totals for the last 6 budget cycles ending with the active cycle,
+     * aligned with the user's configured [budgetResetDay].
+     */
+    fun lastSixMonthsTrend(): List<MonthlyTrendPoint> {
+        val currentStart = cycleStart
+        return (-5..0).map { offset ->
+            val start = currentStart.plusMonthsClamped(offset, budgetResetDay)
+            val endExclusive = currentStart.plusMonthsClamped(offset + 1, budgetResetDay)
+            val total = transactions
+                .asSequence()
+                .filter { it.date >= start && it.date < endExclusive }
+                .sumOf { it.amount }
+            MonthlyTrendPoint(
+                year = start.year,
+                month = start.month,
+                shortLabel = start.monthShortName(),
+                totalSpent = total,
+            )
+        }
+    }
 }

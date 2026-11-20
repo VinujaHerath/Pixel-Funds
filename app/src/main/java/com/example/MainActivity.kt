@@ -13,7 +13,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -30,15 +33,20 @@ import com.example.data.UserPreferences
 import com.example.data.local.LocalBudgetRepository
 import com.example.data.local.MonthlyBudgetOverviewRepository
 import com.example.data.local.PixelFundsDatabase
+import com.example.notifications.AndroidBudgetAlertNotifier
 import com.example.ui.CadenceApp
 import com.example.ui.CadenceViewModel
 import com.example.ui.MonthlyBudgetOverviewViewModel
 import com.example.ui.theme.CadenceTheme
 
 class MainActivity : ComponentActivity() {
+    private var pendingAlertCategoryId by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        AndroidBudgetAlertNotifier(applicationContext).ensureChannelCreated()
+        pendingAlertCategoryId = intent?.getStringExtra(AndroidBudgetAlertNotifier.EXTRA_ALERT_CATEGORY_ID)
         val preferencesRepository = AppPreferencesRepository(applicationContext)
 
         setContent {
@@ -79,8 +87,19 @@ class MainActivity : ComponentActivity() {
             ) {
                 PixelFundsRootNavigation(
                     preferencesRepository = preferencesRepository,
+                    pendingAlertCategoryId = pendingAlertCategoryId,
+                    onConsumeAlertCategory = { pendingAlertCategoryId = null },
                 )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val catId = intent.getStringExtra(AndroidBudgetAlertNotifier.EXTRA_ALERT_CATEGORY_ID)
+        if (!catId.isNullOrBlank()) {
+            pendingAlertCategoryId = catId
         }
     }
 
@@ -113,6 +132,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun PixelFundsRootNavigation(
     preferencesRepository: AppPreferencesRepository,
+    pendingAlertCategoryId: String?,
+    onConsumeAlertCategory: () -> Unit,
 ) {
     val context = LocalContext.current
 
@@ -126,10 +147,17 @@ private fun PixelFundsRootNavigation(
                 CadenceViewModel(
                     repository = LocalBudgetRepository(app),
                     preferencesRepository = preferencesRepository,
+                    budgetAlertDispatcher = AndroidBudgetAlertNotifier(app),
                 )
             }
         },
     )
+
+    LaunchedEffect(pendingAlertCategoryId) {
+        val categoryId = pendingAlertCategoryId ?: return@LaunchedEffect
+        viewModel.expandCategory(categoryId)
+        onConsumeAlertCategory()
+    }
 
     val overviewViewModel: MonthlyBudgetOverviewViewModel = viewModel(
         key = "local_monthly_overview",

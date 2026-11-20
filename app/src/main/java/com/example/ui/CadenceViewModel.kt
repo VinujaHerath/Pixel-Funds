@@ -19,6 +19,10 @@ import com.example.data.local.ImportedCsvRow
 import com.example.data.local.LocalBackupCodec
 import com.example.data.local.ParsedImportPayload
 import com.example.data.local.PixelFundsBackupData
+import com.example.notifications.BudgetAlertDispatcher
+import com.example.notifications.BudgetAlertLevel
+import com.example.notifications.BudgetThresholdEvaluator
+import com.example.ui.components.formatCurrencyValue
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -31,6 +35,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -72,6 +77,7 @@ private sealed interface DataWorkspaceState {
 class CadenceViewModel(
     private val repository: BudgetRepository,
     private val preferencesRepository: AppPreferencesRepository,
+    private val budgetAlertDispatcher: BudgetAlertDispatcher? = null,
 ) : ViewModel() {
 
     private val refreshTrigger = MutableStateFlow(0)
@@ -276,12 +282,90 @@ class CadenceViewModel(
         viewModelScope.launch { preferencesRepository.setWarningThresholdPercent(percent) }
     }
 
+    fun updateBudgetAlertsEnabled(enabled: Boolean) {
+        viewModelScope.launch { preferencesRepository.setBudgetAlertsEnabled(enabled) }
+    }
+
     fun updateIncludeFixedBillsInSafeDaily(enabled: Boolean) {
         viewModelScope.launch { preferencesRepository.setIncludeFixedBillsInSafeDaily(enabled) }
     }
 
     fun updateCompactCards(enabled: Boolean) {
         viewModelScope.launch { preferencesRepository.setCompactCards(enabled) }
+    }
+
+    private suspend fun evaluateBudgetThresholdAlerts(
+        affectedCategoryIds: Set<String>?,
+        emitAlerts: Boolean,
+    ) {
+        runCatching {
+            val prefs = userPreferences.value
+            val today = currentDay.value
+            val resetDay = prefs.budgetResetDay.coerceIn(1, 31)
+            val resetThisMonth = resetDay.coerceIn(1, today.lengthOfMonth())
+            val cycleStart = if (today.dayOfMonth >= resetThisMonth) {
+                LocalDay(today.year, today.month, resetThisMonth)
+            } else {
+                today.plusMonthsClamped(-1, resetDay)
+            }
+            val nextResetDate = if (today.dayOfMonth >= resetThisMonth) {
+                today.plusMonthsClamped(1, resetDay)
+            } else {
+                LocalDay(today.year, today.month, resetThisMonth)
+            }
+
+            val categories = repository.observeCategories().first()
+            val transactions = repository.observeTransactions().first()
+            val spentByCategory = transactions
+                .asSequence()
+                .filter { it.date >= cycleStart && it.date < nextResetDate }
+                .groupBy { it.categoryId }
+                .mapValues { (_, list) -> list.sumOf { it.amount } }
+
+            val alreadySentKeys = preferencesRepository.getSentBudgetAlertKeys()
+            val evaluation = BudgetThresholdEvaluator.evaluate(
+                categories = categories,
+                spentByCategory = spentByCategory,
+                cycleKey = cycleStart.formatIsoDate(),
+                alreadySentKeys = alreadySentKeys,
+                onlyCategoryIds = affectedCategoryIds,
+                emitAlerts = emitAlerts && prefs.budgetAlertsEnabled,
+            )
+
+            if (evaluation.updatedSentKeys != alreadySentKeys) {
+                preferencesRepository.setSentBudgetAlertKeys(evaluation.updatedSentKeys)
+            }
+
+            if (emitAlerts && prefs.budgetAlertsEnabled) {
+                evaluation.alertsToSend.forEach { alert ->
+                    budgetAlertDispatcher?.notifyBudgetAlert(
+                        alert = alert,
+                        currency = prefs.currency,
+                        showDecimals = prefs.showDecimals,
+                    )
+                    val spentText = formatCurrencyValue(
+                        amount = alert.spent,
+                        currency = prefs.currency,
+                        showCents = prefs.showDecimals,
+                    )
+                    val limitText = formatCurrencyValue(
+                        amount = alert.limit,
+                        currency = prefs.currency,
+                        showCents = prefs.showDecimals,
+                    )
+                    val message = when (alert.level) {
+                        BudgetAlertLevel.WARNING_80 ->
+                            "${alert.categoryName} reached ${alert.percentUsed}% of budget ($spentText of $limitText)"
+                        BudgetAlertLevel.LIMIT_100 ->
+                            "${alert.categoryName} exceeded 100% of budget ($spentText of $limitText)"
+                    }
+                    _events.emit(CadenceEvent.ShowMessage(message))
+                }
+            }
+        }.onFailure { err ->
+            if (err is CancellationException) throw err
+            Log.w(TAG, "Budget threshold alert evaluation failed", err)
+        }
     }
 
     // --- Onboarding & Interactive Tutorial ---
@@ -481,6 +565,16 @@ class CadenceViewModel(
                 val label = if (scheduleKind == RecurringKind.SUBSCRIPTION) "subscription" else "recurring bill"
                 _events.emit(CadenceEvent.ShowMessage("Logged & added $label"))
             }
+            if (result.isSuccess) {
+                val touchedCategories = buildSet {
+                    add(categoryId)
+                    editing?.categoryId?.let { add(it) }
+                }
+                evaluateBudgetThresholdAlerts(
+                    affectedCategoryIds = touchedCategories,
+                    emitAlerts = true,
+                )
+            }
             result.onFailure { err ->
                 _events.emit(
                     CadenceEvent.ShowMessage(err.localizedMessage ?: "Couldn't save expense")
@@ -494,6 +588,10 @@ class CadenceViewModel(
         viewModelScope.launch {
             val result = repository.deleteTransaction(tx.id)
             if (result.isSuccess) {
+                evaluateBudgetThresholdAlerts(
+                    affectedCategoryIds = setOf(tx.categoryId),
+                    emitAlerts = false,
+                )
                 _events.emit(
                     CadenceEvent.ShowMessage("Deleted ${tx.merchantOrNote}", showUndo = true)
                 )
@@ -607,6 +705,10 @@ class CadenceViewModel(
             val result = repository.logRecurringPayment(item, today)
             result.onSuccess {
                 _events.emit(CadenceEvent.ShowMessage("Logged ${item.name} & updated next due date"))
+                evaluateBudgetThresholdAlerts(
+                    affectedCategoryIds = setOf(item.categoryId),
+                    emitAlerts = true,
+                )
             }.onFailure { err ->
                 _events.emit(
                     CadenceEvent.ShowMessage(err.localizedMessage ?: "Couldn't log payment")
@@ -637,7 +739,12 @@ class CadenceViewModel(
     fun updateCategoryLimit(categoryId: String, newLimit: Double) {
         viewModelScope.launch {
             val result = repository.updateCategoryLimit(categoryId, newLimit)
-            result.onFailure { err ->
+            result.onSuccess {
+                evaluateBudgetThresholdAlerts(
+                    affectedCategoryIds = setOf(categoryId),
+                    emitAlerts = true,
+                )
+            }.onFailure { err ->
                 _events.emit(
                     CadenceEvent.ShowMessage(err.localizedMessage ?: "Couldn't update limit")
                 )
@@ -686,6 +793,12 @@ class CadenceViewModel(
                         if (editing != null) "Updated ${name.trim()}" else "Added ${name.trim()}"
                     )
                 )
+                if (editing != null) {
+                    evaluateBudgetThresholdAlerts(
+                        affectedCategoryIds = setOf(editing.id),
+                        emitAlerts = true,
+                    )
+                }
             }.onFailure { err ->
                 _events.emit(
                     CadenceEvent.ShowMessage(err.localizedMessage ?: "Couldn't save category")
@@ -736,6 +849,7 @@ class CadenceViewModel(
             val result = repository.clearSampleData()
             localControls.update { it.copy(isMutating = false) }
             result.onSuccess {
+                evaluateBudgetThresholdAlerts(affectedCategoryIds = null, emitAlerts = false)
                 _events.emit(CadenceEvent.ShowMessage("Sample data cleared"))
             }.onFailure { err ->
                 _events.emit(
@@ -766,6 +880,7 @@ class CadenceViewModel(
             val result = repository.clearAllTransactions()
             localControls.update { it.copy(isMutating = false) }
             result.onSuccess {
+                preferencesRepository.setSentBudgetAlertKeys(emptySet())
                 _events.emit(CadenceEvent.ShowMessage("All transactions cleared"))
             }.onFailure { err ->
                 _events.emit(

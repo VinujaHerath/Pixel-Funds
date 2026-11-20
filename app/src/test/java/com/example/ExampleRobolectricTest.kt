@@ -1,18 +1,27 @@
 package com.example
 
+import android.Manifest
+import android.app.Application
+import android.app.Notification
+import android.app.NotificationManager
 import android.content.Context
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Restaurant
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToKey
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.AppThemeMode
 import com.example.data.BillingCadence
+import com.example.data.BudgetCategory
 import com.example.data.LocalDay
 import com.example.data.RecurringKind
 import com.example.data.UserPreferences
@@ -26,15 +35,21 @@ import com.example.data.local.MonthlyBudgetLimitEntity
 import com.example.data.local.MonthlyBudgetOverviewRepository
 import com.example.data.local.ParsedImportPayload
 import com.example.data.local.PixelFundsDatabase
+import com.example.notifications.AndroidBudgetAlertNotifier
+import com.example.notifications.BudgetAlertLevel
+import com.example.notifications.BudgetThresholdEvaluator
+import com.example.notifications.CategoryBudgetAlert
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -81,13 +96,27 @@ class ExampleRobolectricTest {
         composeRule.onNodeWithTag("tutorial_done_button").performClick()
         composeRule.waitForIdle()
 
-        // Return to Home and verify decluttered Dashboard + Help button
+        // Return to Home and verify decluttered Dashboard + Help button + 6-month Vico trend chart
         composeRule.onNodeWithTag("nav_tab_home").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
             composeRule.onAllNodesWithTag("hero_balance_card").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("hero_balance_card").assertIsDisplayed()
         composeRule.onNodeWithTag("home_tutorial_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("nav_icon_home", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithTag("nav_icon_budgets", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithTag("nav_icon_activity", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithTag("nav_icon_insights", useUnmergedTree = true).assertIsDisplayed()
+
+        // Scroll to and verify 6-month spending trend card & Vico chart render on the Dashboard
+        composeRule.onNodeWithTag("dashboard_list").performScrollToKey("six_month_trend_chart")
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("dashboard_six_month_vico_chart").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("dashboard_six_month_trend_card").assertIsDisplayed()
+        composeRule.onNodeWithTag("dashboard_six_month_vico_chart").assertExists()
+        composeRule.onNodeWithTag("dashboard_list").performScrollToKey("header")
+        composeRule.waitForIdle()
 
         // Verify replaying tutorial from Home ? button works and can be dismissed
         composeRule.onNodeWithTag("home_tutorial_button").performClick()
@@ -342,5 +371,139 @@ class ExampleRobolectricTest {
         val elapsedMs = System.currentTimeMillis() - startMs
         assertTrue("Expected default currency code to be 3 letters", currency.code.length == 3)
         assertTrue("Default currency resolution took too long (${elapsedMs}ms)", elapsedMs < 500L)
+    }
+
+    @Test
+    fun budgetThresholdEvaluatorTriggers80And100PercentAlertsWithoutDuplicates() {
+        val dining = BudgetCategory(
+            id = "dining",
+            name = "Dining",
+            iconKey = "dining",
+            icon = Icons.Rounded.Restaurant,
+            colorHex = 0xFFE07A5FL,
+            accentColor = Color(0xFFE07A5FL),
+            monthlyLimit = 500.0,
+        )
+        val categories = listOf(dining)
+        val cycleNov = "2026-11-01"
+
+        // 75% spend -> no alert
+        val step1 = BudgetThresholdEvaluator.evaluate(
+            categories = categories,
+            spentByCategory = mapOf("dining" to 375.0),
+            cycleKey = cycleNov,
+            alreadySentKeys = emptySet(),
+        )
+        assertTrue(step1.alertsToSend.isEmpty())
+        assertTrue(step1.updatedSentKeys.isEmpty())
+
+        // 84% spend -> triggers 80% warning once
+        val step2 = BudgetThresholdEvaluator.evaluate(
+            categories = categories,
+            spentByCategory = mapOf("dining" to 420.0),
+            cycleKey = cycleNov,
+            alreadySentKeys = step1.updatedSentKeys,
+        )
+        assertEquals(1, step2.alertsToSend.size)
+        assertEquals(BudgetAlertLevel.WARNING_80, step2.alertsToSend.first().level)
+        assertEquals(84, step2.alertsToSend.first().percentUsed)
+
+        // 92% spend in same cycle -> no duplicate 80% alert
+        val step3 = BudgetThresholdEvaluator.evaluate(
+            categories = categories,
+            spentByCategory = mapOf("dining" to 460.0),
+            cycleKey = cycleNov,
+            alreadySentKeys = step2.updatedSentKeys,
+        )
+        assertTrue(step3.alertsToSend.isEmpty())
+
+        // 108% spend -> escalates to 100% exceeded alert
+        val step4 = BudgetThresholdEvaluator.evaluate(
+            categories = categories,
+            spentByCategory = mapOf("dining" to 540.0),
+            cycleKey = cycleNov,
+            alreadySentKeys = step3.updatedSentKeys,
+        )
+        assertEquals(1, step4.alertsToSend.size)
+        assertEquals(BudgetAlertLevel.LIMIT_100, step4.alertsToSend.first().level)
+        assertEquals(108, step4.alertsToSend.first().percentUsed)
+
+        // Additional spend above 100% -> no duplicate 100% alert
+        val step5 = BudgetThresholdEvaluator.evaluate(
+            categories = categories,
+            spentByCategory = mapOf("dining" to 600.0),
+            cycleKey = cycleNov,
+            alreadySentKeys = step4.updatedSentKeys,
+        )
+        assertTrue(step5.alertsToSend.isEmpty())
+
+        // Dropping back below 80% (e.g. deleted expense) clears keys for that cycle
+        val step6 = BudgetThresholdEvaluator.evaluate(
+            categories = categories,
+            spentByCategory = mapOf("dining" to 200.0),
+            cycleKey = cycleNov,
+            alreadySentKeys = step5.updatedSentKeys,
+            emitAlerts = false,
+        )
+        assertTrue(step6.updatedSentKeys.isEmpty())
+
+        // Jumping directly from 0% to 115% fires only the 100% alert
+        val jumpOver = BudgetThresholdEvaluator.evaluate(
+            categories = categories,
+            spentByCategory = mapOf("dining" to 575.0),
+            cycleKey = "2026-12-01",
+            alreadySentKeys = step4.updatedSentKeys,
+        )
+        assertEquals(1, jumpOver.alertsToSend.size)
+        assertEquals(BudgetAlertLevel.LIMIT_100, jumpOver.alertsToSend.first().level)
+    }
+
+    @Test
+    fun androidBudgetAlertNotifierCreatesChannelAndPosts80And100Notifications() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val notificationManager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val shadowNm = Shadows.shadowOf(notificationManager)
+        shadowNm.setNotificationsEnabled(true)
+
+        val notifier = AndroidBudgetAlertNotifier(app)
+        notifier.ensureChannelCreated()
+        assertNotNull(notificationManager.getNotificationChannel(AndroidBudgetAlertNotifier.CHANNEL_ID))
+
+        val posted80 = notifier.notifyBudgetAlert(
+            alert = CategoryBudgetAlert(
+                categoryId = "dining",
+                categoryName = "Dining",
+                spent = 420.0,
+                limit = 500.0,
+                percentUsed = 84,
+                level = BudgetAlertLevel.WARNING_80,
+                cycleKey = "2026-11-01",
+            ),
+            currency = WorldCurrencyCatalog.USD,
+            showDecimals = false,
+        )
+        assertTrue(posted80)
+        val firstNotification = shadowNm.allNotifications.last()
+        val firstTitle = firstNotification.extras.getString(Notification.EXTRA_TITLE).orEmpty()
+        assertTrue("Expected 84% title, got: $firstTitle", firstTitle.contains("Dining") && firstTitle.contains("84%"))
+
+        val posted100 = notifier.notifyBudgetAlert(
+            alert = CategoryBudgetAlert(
+                categoryId = "dining",
+                categoryName = "Dining",
+                spent = 550.0,
+                limit = 500.0,
+                percentUsed = 110,
+                level = BudgetAlertLevel.LIMIT_100,
+                cycleKey = "2026-11-01",
+            ),
+            currency = WorldCurrencyCatalog.USD,
+            showDecimals = false,
+        )
+        assertTrue(posted100)
+        val secondNotification = shadowNm.allNotifications.last()
+        val secondTitle = secondNotification.extras.getString(Notification.EXTRA_TITLE).orEmpty()
+        assertTrue("Expected exceeded budget title, got: $secondTitle", secondTitle.contains("Dining") && secondTitle.contains("110%"))
     }
 }

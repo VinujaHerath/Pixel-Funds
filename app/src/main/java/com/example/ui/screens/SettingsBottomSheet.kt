@@ -1,6 +1,9 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.content.Intent
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -78,6 +81,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -97,6 +101,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.R
 import com.example.data.AppThemeMode
 import com.example.data.CadenceUiState
@@ -107,6 +114,7 @@ import com.example.data.WorldCurrencyCatalog
 import com.example.data.local.ImportedCsvRow
 import com.example.data.local.ParsedImportPayload
 import com.example.data.local.PixelFundsBackupData
+import com.example.notifications.AndroidBudgetAlertNotifier
 import com.example.ui.components.rememberPixelHaptics
 import com.example.ui.theme.ExpressiveMotion
 import com.example.ui.theme.LocalFinancialColors
@@ -129,6 +137,7 @@ fun SettingsOverlayScreen(
     onToggleHaptics: (Boolean) -> Unit,
     onToggleReduceMotion: (Boolean) -> Unit,
     onUpdateWarningThreshold: (Int) -> Unit,
+    onToggleBudgetAlerts: (Boolean) -> Unit,
     onToggleIncludeFixedBills: (Boolean) -> Unit,
     onToggleCompactCards: (Boolean) -> Unit,
     onBuildFullBackupJson: suspend () -> Result<String>,
@@ -157,6 +166,48 @@ fun SettingsOverlayScreen(
     var isProcessingFile by remember { mutableStateOf(false) }
     var sliderDraft by remember(preferences.warningThresholdPercent) {
         mutableFloatStateOf(preferences.warningThresholdPercent.toFloat())
+    }
+    var hasNotificationPermission by remember {
+        mutableStateOf(AndroidBudgetAlertNotifier.canPostNotifications(context))
+    }
+    var hasDeniedNotificationOnce by remember { mutableStateOf(false) }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasNotificationPermission = AndroidBudgetAlertNotifier.canPostNotifications(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        hasNotificationPermission = granted && AndroidBudgetAlertNotifier.canPostNotifications(context)
+        if (granted) {
+            hasDeniedNotificationOnce = false
+            onExportStatusMessage(context.getString(R.string.settings_budget_alerts_enabled_toast))
+        } else {
+            hasDeniedNotificationOnce = true
+            onExportStatusMessage(context.getString(R.string.settings_budget_alerts_denied_toast))
+        }
+    }
+
+    val openSystemNotificationSettings = {
+        val intent = Intent().apply {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                action = Settings.ACTION_APP_NOTIFICATION_SETTINGS
+                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+            } else {
+                action = Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+                data = android.net.Uri.fromParts("package", context.packageName, null)
+            }
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        runCatching { context.startActivity(intent) }
     }
 
     val exportBackupJsonLauncher = rememberLauncherForActivityResult(
@@ -594,6 +645,85 @@ fun SettingsOverlayScreen(
                                     },
                                     testTag = "reserve_bills_switch",
                                 )
+
+                                SettingsDivider()
+
+                                // Category Budget Threshold Alerts (80% & 100%)
+                                SettingsToggleRow(
+                                    icon = Icons.Rounded.NotificationsActive,
+                                    title = stringResource(R.string.settings_budget_alerts_title),
+                                    subtitle = stringResource(R.string.settings_budget_alerts_subtitle),
+                                    checked = preferences.budgetAlertsEnabled,
+                                    onCheckedChange = { enabled ->
+                                        performHaptic(HapticFeedbackType.TextHandleMove)
+                                        onToggleBudgetAlerts(enabled)
+                                        if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                            !AndroidBudgetAlertNotifier.hasPostNotificationsPermission(context)
+                                        ) {
+                                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                        }
+                                    },
+                                    testTag = "budget_alerts_switch",
+                                )
+
+                                if (preferences.budgetAlertsEnabled && !hasNotificationPermission) {
+                                    Surface(
+                                        shape = RoundedCornerShape(20.dp),
+                                        color = finColors.warningContainer.copy(alpha = 0.72f),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(start = 16.dp, end = 16.dp, bottom = 14.dp),
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(14.dp),
+                                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                                        ) {
+                                            Text(
+                                                text = stringResource(R.string.settings_budget_alerts_permission_needed),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = finColors.onWarningContainer,
+                                            )
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                                    !hasDeniedNotificationOnce
+                                                ) {
+                                                    Button(
+                                                        onClick = {
+                                                            performHaptic(HapticFeedbackType.TextHandleMove)
+                                                            notificationPermissionLauncher.launch(
+                                                                Manifest.permission.POST_NOTIFICATIONS
+                                                            )
+                                                        },
+                                                        shape = CircleShape,
+                                                        modifier = Modifier.testTag("allow_notifications_button"),
+                                                    ) {
+                                                        Text(
+                                                            text = stringResource(R.string.settings_budget_alerts_allow_button),
+                                                            style = MaterialTheme.typography.labelLarge,
+                                                        )
+                                                    }
+                                                } else {
+                                                    OutlinedButton(
+                                                        onClick = {
+                                                            performHaptic(HapticFeedbackType.TextHandleMove)
+                                                            openSystemNotificationSettings()
+                                                        },
+                                                        shape = CircleShape,
+                                                        modifier = Modifier.testTag("open_notification_settings_button"),
+                                                    ) {
+                                                        Text(
+                                                            text = stringResource(R.string.settings_budget_alerts_open_settings),
+                                                            style = MaterialTheme.typography.labelLarge,
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
 
                                 SettingsDivider()
 

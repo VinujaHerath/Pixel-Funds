@@ -1,6 +1,10 @@
 package com.example.ui
 
+import android.Manifest
+import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
@@ -57,6 +61,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -75,6 +80,8 @@ import com.example.data.BudgetCategory
 import com.example.data.CadenceTab
 import com.example.data.Transaction
 import com.example.data.WorkspaceLoadState
+import com.example.notifications.AndroidBudgetAlertNotifier
+import com.example.ui.components.AnimatedNavTabIcon
 import com.example.ui.components.FloatingPillToolbar
 import com.example.ui.components.LocalReduceMotion
 import com.example.ui.components.WavyProgressIndicator
@@ -118,6 +125,15 @@ fun CadenceApp(
     val context = LocalContext.current
     val performHaptic = rememberPixelHaptics()
     val reduceMotion = LocalReduceMotion.current
+    var hasPromptedNotificationPermission by remember { mutableStateOf(false) }
+
+    val expenseNotificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (!granted) {
+            viewModel.showToastMessage(context.getString(R.string.settings_budget_alerts_denied_toast))
+        }
+    }
 
     // Keep the visible tab & sub-section synced with the current guided tutorial step
     LaunchedEffect(tutorialStepIndex) {
@@ -199,13 +215,24 @@ fun CadenceApp(
                             },
                         ) {
                             CadenceTab.entries.forEach { tab ->
+                                val selected = tab == activeTab
+                                var clickNonce by remember(tab) { mutableIntStateOf(0) }
                                 NavigationRailItem(
-                                    selected = tab == activeTab,
+                                    selected = selected,
                                     onClick = {
+                                        clickNonce += 1
                                         performHaptic(HapticFeedbackType.TextHandleMove)
                                         activeTab = tab
                                     },
-                                    icon = { Icon(tab.icon, contentDescription = tab.label) },
+                                    icon = {
+                                        AnimatedNavTabIcon(
+                                            tab = tab,
+                                            selected = selected,
+                                            clickNonce = clickNonce,
+                                            tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
+                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
                                     label = { Text(tab.label) },
                                     modifier = Modifier.testTag("nav_tab_${tab.name.lowercase()}"),
                                 )
@@ -320,6 +347,9 @@ fun CadenceApp(
                                                 activitySection = ActivitySection.BILLS_AND_SUBS
                                                 activeTab = CadenceTab.Activity
                                             },
+                                            onOpenInsights = {
+                                                activeTab = CadenceTab.Insights
+                                            },
                                             onOpenAccount = viewModel::openAccountSheet,
                                             onOpenTutorial = viewModel::startTutorial,
                                             onClearSampleData = viewModel::clearSampleData,
@@ -433,6 +463,7 @@ fun CadenceApp(
                     onToggleHaptics = viewModel::updateHapticsEnabled,
                     onToggleReduceMotion = viewModel::updateReduceMotion,
                     onUpdateWarningThreshold = viewModel::updateWarningThresholdPercent,
+                    onToggleBudgetAlerts = viewModel::updateBudgetAlertsEnabled,
                     onToggleIncludeFixedBills = viewModel::updateIncludeFixedBillsInSafeDaily,
                     onToggleCompactCards = viewModel::updateCompactCards,
                     onBuildFullBackupJson = viewModel::buildFullBackupJson,
@@ -499,7 +530,24 @@ fun CadenceApp(
             editingTransaction = uiState.editingTransaction,
             isSaving = uiState.isMutating,
             onDismiss = viewModel::dismissEntrySheet,
-            onSave = viewModel::saveTransaction,
+            onSave = { amount, categoryId, note, date, scheduleKind, scheduleCadence ->
+                if (userPreferences.budgetAlertsEnabled &&
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    !hasPromptedNotificationPermission &&
+                    !AndroidBudgetAlertNotifier.hasPostNotificationsPermission(context)
+                ) {
+                    hasPromptedNotificationPermission = true
+                    expenseNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+                viewModel.saveTransaction(
+                    amount = amount,
+                    categoryId = categoryId,
+                    note = note,
+                    date = date,
+                    scheduleKind = scheduleKind,
+                    scheduleCadence = scheduleCadence,
+                )
+            },
         )
     }
 

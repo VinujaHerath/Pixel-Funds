@@ -206,8 +206,22 @@
     <string name="settings_currency_no_results">No matching currencies found</string>
     <string name="settings_reserve_bills_title">Reserve upcoming bills</string>
     <string name="settings_reserve_bills_subtitle">Subtract upcoming recurring bills &amp; subs from Safe / day</string>
+    <string name="settings_budget_alerts_title">Category budget alerts</string>
+    <string name="settings_budget_alerts_subtitle" formatted="false">Notify when a category reaches 80% or exceeds 100% of its monthly limit</string>
+    <string name="settings_budget_alerts_permission_needed" formatted="false">Notification permission is off. Allow notifications to receive 80% and 100% category alerts in your status bar.</string>
+    <string name="settings_budget_alerts_allow_button">Allow notifications</string>
+    <string name="settings_budget_alerts_open_settings">Open notification settings</string>
+    <string name="settings_budget_alerts_enabled_toast" formatted="false">Category budget alerts enabled (80% &amp; 100%)</string>
+    <string name="settings_budget_alerts_denied_toast">System notifications are off — you\'ll still see in-app budget alerts</string>
     <string name="settings_warning_threshold_title">Budget warning threshold</string>
     <string name="settings_warning_threshold_subtitle">Highlight categories in amber at %1$d%% of limit</string>
+    <string name="notification_channel_budget_alerts_name">Budget category alerts</string>
+    <string name="notification_channel_budget_alerts_desc" formatted="false">Alerts when your spending reaches 80% or exceeds 100% of a monthly category budget</string>
+    <string name="notification_budget_80_title">%1$s reached %2$d%% of budget</string>
+    <string name="notification_budget_80_body">You\'ve spent %1$s of your %2$s monthly %3$s limit (%4$s left this cycle).</string>
+    <string name="notification_budget_100_title">%1$s exceeded budget (%2$d%%)</string>
+    <string name="notification_budget_100_body">You\'ve spent %1$s of your %2$s monthly %3$s limit (%4$s over limit).</string>
+    <string name="notification_budget_100_exact_body">You\'ve spent %1$s and reached 100%% of your %2$s monthly %3$s limit.</string>
     <string name="settings_export_backup_title">Export full backup (JSON)</string>
     <string name="settings_export_backup_subtitle">Save categories, transactions, bills &amp; subs, monthly caps, and settings</string>
     <string name="settings_backup_export_success">Full backup saved</string>
@@ -292,6 +306,13 @@
     <string name="dashboard_fixed_per_month">%1$s/mo fixed</string>
     <string name="dashboard_spent_of_budget">%1$s spent of %2$s</string>
     <string name="dashboard_see_all">See all</string>
+    <string name="dashboard_six_month_trend_title">6-month spending</string>
+    <string name="dashboard_six_month_avg">Avg %1$s / mo</string>
+    <string name="dashboard_six_month_insights_cta">Insights</string>
+    <string name="dashboard_six_month_empty">Log expenses to see your 6-month spending trend here.</string>
+    <string name="dashboard_six_month_vs_avg_down">%1$d%% below avg</string>
+    <string name="dashboard_six_month_vs_avg_up">%1$d%% above avg</string>
+    <string name="dashboard_six_month_vs_avg_even">On avg</string>
 
     <!-- Content Descriptions & Misc -->
     <string name="cd_add_expense">Add expense</string>

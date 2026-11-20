@@ -66,6 +66,7 @@ object LocalBackupCodec {
                         put("hapticsEnabled", prefs.hapticsEnabled)
                         put("reduceMotion", prefs.reduceMotion)
                         put("warningThresholdPercent", prefs.warningThresholdPercent)
+                        put("budgetAlertsEnabled", prefs.budgetAlertsEnabled)
                         put("includeFixedBillsInSafeDaily", prefs.includeFixedBillsInSafeDaily)
                         put("compactCards", prefs.compactCards)
                     }
@@ -178,6 +179,7 @@ object LocalBackupCodec {
                 hapticsEnabled = p.optBoolean("hapticsEnabled", true),
                 reduceMotion = p.optBoolean("reduceMotion", false),
                 warningThresholdPercent = p.optInt("warningThresholdPercent", 80).coerceIn(55, 95),
+                budgetAlertsEnabled = p.optBoolean("budgetAlertsEnabled", true),
                 includeFixedBillsInSafeDaily = p.optBoolean("includeFixedBillsInSafeDaily", false),
                 compactCards = p.optBoolean("compactCards", false),
             )

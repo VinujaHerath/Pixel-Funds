@@ -8,9 +8,11 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.io.IOException
 import java.util.Currency
@@ -58,6 +60,7 @@ data class UserPreferences(
     val hapticsEnabled: Boolean = true,
     val reduceMotion: Boolean = false,
     val warningThresholdPercent: Int = 80,
+    val budgetAlertsEnabled: Boolean = true,
     val includeFixedBillsInSafeDaily: Boolean = false,
     val compactCards: Boolean = false,
     val hasCompletedOnboarding: Boolean = false,
@@ -254,6 +257,8 @@ class AppPreferencesRepository(private val context: Context) {
         val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
         val REDUCE_MOTION = booleanPreferencesKey("reduce_motion")
         val WARNING_THRESHOLD = intPreferencesKey("warning_threshold_percent")
+        val BUDGET_ALERTS_ENABLED = booleanPreferencesKey("budget_alerts_enabled")
+        val SENT_BUDGET_ALERT_KEYS = stringSetPreferencesKey("sent_budget_alert_keys")
         val INCLUDE_FIXED_BILLS_SAFE = booleanPreferencesKey("include_fixed_bills_safe")
         val COMPACT_CARDS = booleanPreferencesKey("compact_cards")
         val HAS_COMPLETED_ONBOARDING = booleanPreferencesKey("has_completed_onboarding")
@@ -278,6 +283,7 @@ class AppPreferencesRepository(private val context: Context) {
                 hapticsEnabled = prefs[Keys.HAPTICS_ENABLED] ?: true,
                 reduceMotion = prefs[Keys.REDUCE_MOTION] ?: false,
                 warningThresholdPercent = (prefs[Keys.WARNING_THRESHOLD] ?: 80).coerceIn(55, 95),
+                budgetAlertsEnabled = prefs[Keys.BUDGET_ALERTS_ENABLED] ?: true,
                 includeFixedBillsInSafeDaily = prefs[Keys.INCLUDE_FIXED_BILLS_SAFE] ?: false,
                 compactCards = prefs[Keys.COMPACT_CARDS] ?: false,
                 hasCompletedOnboarding = prefs[Keys.HAS_COMPLETED_ONBOARDING] ?: false,
@@ -319,6 +325,28 @@ class AppPreferencesRepository(private val context: Context) {
         context.pixelFundsPrefsDataStore.edit { it[Keys.WARNING_THRESHOLD] = percent.coerceIn(55, 95) }
     }
 
+    suspend fun setBudgetAlertsEnabled(enabled: Boolean) {
+        context.pixelFundsPrefsDataStore.edit { it[Keys.BUDGET_ALERTS_ENABLED] = enabled }
+    }
+
+    suspend fun getSentBudgetAlertKeys(): Set<String> =
+        context.pixelFundsPrefsDataStore.data
+            .catch { exception ->
+                if (exception is IOException) {
+                    emit(androidx.datastore.preferences.core.emptyPreferences())
+                } else {
+                    throw exception
+                }
+            }
+            .map { prefs -> prefs[Keys.SENT_BUDGET_ALERT_KEYS] ?: emptySet() }
+            .first()
+
+    suspend fun setSentBudgetAlertKeys(keys: Set<String>) {
+        context.pixelFundsPrefsDataStore.edit { store ->
+            store[Keys.SENT_BUDGET_ALERT_KEYS] = keys
+        }
+    }
+
     suspend fun setIncludeFixedBillsInSafeDaily(enabled: Boolean) {
         context.pixelFundsPrefsDataStore.edit { it[Keys.INCLUDE_FIXED_BILLS_SAFE] = enabled }
     }
@@ -346,6 +374,8 @@ class AppPreferencesRepository(private val context: Context) {
             store[Keys.HAPTICS_ENABLED] = prefs.hapticsEnabled
             store[Keys.REDUCE_MOTION] = prefs.reduceMotion
             store[Keys.WARNING_THRESHOLD] = prefs.warningThresholdPercent.coerceIn(55, 95)
+            store[Keys.BUDGET_ALERTS_ENABLED] = prefs.budgetAlertsEnabled
+            store[Keys.SENT_BUDGET_ALERT_KEYS] = emptySet()
             store[Keys.INCLUDE_FIXED_BILLS_SAFE] = prefs.includeFixedBillsInSafeDaily
             store[Keys.COMPACT_CARDS] = prefs.compactCards
             store[Keys.HAS_COMPLETED_ONBOARDING] = true

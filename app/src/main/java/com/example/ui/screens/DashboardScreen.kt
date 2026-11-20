@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.BudgetCategory
 import com.example.data.CadenceUiState
+import com.example.ui.components.DashboardSpendingTrendCard
 import com.example.ui.components.formatCurrency
 import com.example.ui.components.rememberPixelHaptics
 import com.example.ui.theme.ExpressiveMotion
@@ -77,6 +78,7 @@ fun DashboardScreen(
     onCategoryClick: (BudgetCategory) -> Unit,
     onViewAllActivity: () -> Unit,
     onOpenBillsAndSubs: () -> Unit,
+    onOpenInsights: () -> Unit,
     onOpenAccount: () -> Unit,
     onOpenTutorial: () -> Unit,
     onClearSampleData: () -> Unit,
@@ -332,7 +334,18 @@ fun DashboardScreen(
             }
         }
 
-        // 4. Clean Top Categories List (Single Grouped Card, Top 3)
+        // 4. 6-Month Spending Trend Chart (Vico Material 3)
+        item(key = "six_month_trend_chart") {
+            val sixMonthTrend = remember(state.transactions, state.today, state.budgetResetDay) {
+                state.lastSixMonthsTrend()
+            }
+            DashboardSpendingTrendCard(
+                trendPoints = sixMonthTrend,
+                onOpenInsights = onOpenInsights,
+            )
+        }
+
+        // 5. Clean Top Categories List (Single Grouped Card, Top 3)
         item(key = "top_categories_section") {
             val topCategories = remember(state.categories, state.transactions, state.today, state.budgetResetDay) {
                 state.categories
