@@ -86,12 +86,13 @@ fun DashboardSpendingTrendCard(
     }
 
     val modelProducer = remember { CartesianChartModelProducer() }
+    val seriesValues = remember(trendPoints) { trendPoints.map { it.totalSpent } }
 
-    LaunchedEffect(trendPoints) {
-        if (trendPoints.isNotEmpty() && trendPoints.any { it.totalSpent > 0.0 }) {
+    LaunchedEffect(seriesValues) {
+        if (seriesValues.isNotEmpty() && seriesValues.any { it > 0.0 }) {
             modelProducer.runTransaction {
                 lineSeries {
-                    series(trendPoints.map { it.totalSpent })
+                    series(seriesValues)
                 }
             }
         }

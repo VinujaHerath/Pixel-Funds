@@ -1,8 +1,5 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -10,18 +7,19 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -49,7 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -68,13 +66,11 @@ import com.example.ui.components.rememberPixelHaptics
 import com.example.ui.theme.ExpressiveMotion
 import com.example.ui.theme.budgetStatusPalette
 
-@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun DashboardScreen(
     state: CadenceUiState,
     contentPadding: PaddingValues,
-    sharedTransitionScope: SharedTransitionScope,
-    animatedVisibilityScope: AnimatedVisibilityScope,
+    listState: LazyListState = rememberLazyListState(),
     onCategoryClick: (BudgetCategory) -> Unit,
     onViewAllActivity: () -> Unit,
     onOpenBillsAndSubs: () -> Unit,
@@ -169,6 +165,7 @@ fun DashboardScreen(
     }
 
     LazyColumn(
+        state = listState,
         modifier = Modifier
             .fillMaxSize()
             .testTag("dashboard_list"),
@@ -176,7 +173,7 @@ fun DashboardScreen(
         verticalArrangement = Arrangement.spacedBy(if (state.compactCards) 14.dp else 20.dp),
     ) {
         // 1. Minimal Editorial Header
-        item(key = "header") {
+        item(key = "header", contentType = "dashboard_header") {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -252,7 +249,7 @@ fun DashboardScreen(
 
         // Slim Sample Data Notice (only shown if demo data is present)
         if (state.hasSampleData) {
-            item(key = "sample_banner") {
+            item(key = "sample_banner", contentType = "sample_banner") {
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -297,7 +294,7 @@ fun DashboardScreen(
         }
 
         // 2. Unified Hero Balance Squircle (Remaining + Cycle Pill + Clean Progress)
-        item(key = "hero_balance") {
+        item(key = "hero_balance", contentType = "hero_balance") {
             HeroBalanceSquircle(
                 state = state,
                 onCyclePillClick = {
@@ -307,19 +304,17 @@ fun DashboardScreen(
             )
         }
 
-        // 3. Calm 2-Tile Glance Strip: Safe / Day + Next Bill
-        item(key = "glance_strip") {
+        // 3. Calm 2-Tile Glance Strip: Safe / Day + Next Bill (no IntrinsicSize double-measure)
+        item(key = "glance_strip", contentType = "glance_strip") {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(IntrinsicSize.Max),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 SafeDailyPaceTile(
                     state = state,
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxHeight(),
+                        .heightIn(min = 114.dp),
                 )
                 NextBillTile(
                     state = state,
@@ -329,24 +324,21 @@ fun DashboardScreen(
                     },
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxHeight(),
+                        .heightIn(min = 114.dp),
                 )
             }
         }
 
         // 4. 6-Month Spending Trend Chart (Vico Material 3)
-        item(key = "six_month_trend_chart") {
-            val sixMonthTrend = remember(state.transactions, state.today, state.budgetResetDay) {
-                state.lastSixMonthsTrend()
-            }
+        item(key = "six_month_trend_chart", contentType = "six_month_trend") {
             DashboardSpendingTrendCard(
-                trendPoints = sixMonthTrend,
+                trendPoints = state.lastSixMonthsTrend(),
                 onOpenInsights = onOpenInsights,
             )
         }
 
         // 5. Clean Top Categories List (Single Grouped Card, Top 3)
-        item(key = "top_categories_section") {
+        item(key = "top_categories_section", contentType = "top_categories") {
             val topCategories = remember(state.categories, state.transactions, state.today, state.budgetResetDay) {
                 state.categories
                     .sortedByDescending { state.spentForCategoryThisMonth(it.id) }
@@ -395,8 +387,6 @@ fun DashboardScreen(
                                     category = category,
                                     spent = state.spentForCategoryThisMonth(category.id),
                                     warningThreshold = state.warningThresholdRatio,
-                                    sharedTransitionScope = sharedTransitionScope,
-                                    animatedVisibilityScope = animatedVisibilityScope,
                                     onClick = {
                                         performHaptic(HapticFeedbackType.TextHandleMove)
                                         onCategoryClick(category)
@@ -423,12 +413,7 @@ private fun HeroBalanceSquircle(
     onCyclePillClick: () -> Unit,
 ) {
     val isNegative = state.remainingBudget < 0.0
-    val animatedRemaining by animateFloatAsState(
-        targetValue = state.remainingBudget.toFloat(),
-        animationSpec = ExpressiveMotion.slowSpatial(),
-        label = "HeroBalanceSpring",
-    )
-    val animatedProgress by animateFloatAsState(
+    val animatedProgressState = animateFloatAsState(
         targetValue = state.overallSpendRatio.coerceIn(0f, 1f),
         animationSpec = ExpressiveMotion.slowSpatial(),
         label = "HeroSpendProgress",
@@ -458,16 +443,21 @@ private fun HeroBalanceSquircle(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .drawBehind {
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(glowColor, Color.Transparent),
-                            center = Offset(size.width * 0.88f, size.height * 0.14f),
-                            radius = size.maxDimension * 0.68f,
-                        ),
-                        radius = size.maxDimension * 0.68f,
-                        center = Offset(size.width * 0.88f, size.height * 0.14f),
+                .drawWithCache {
+                    val center = Offset(size.width * 0.88f, size.height * 0.14f)
+                    val radius = size.maxDimension * 0.68f
+                    val glowBrush = Brush.radialGradient(
+                        colors = listOf(glowColor, Color.Transparent),
+                        center = center,
+                        radius = radius,
                     )
+                    onDrawBehind {
+                        drawCircle(
+                            brush = glowBrush,
+                            radius = radius,
+                            center = center,
+                        )
+                    }
                 }
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -511,17 +501,14 @@ private fun HeroBalanceSquircle(
                 }
             }
 
-            Text(
-                text = formatCurrency(animatedRemaining.toDouble(), showCents = true),
-                style = MaterialTheme.typography.displayLarge,
-                color = contentColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            AnimatedHeroRemainingAmount(
+                remainingBudget = state.remainingBudget,
+                contentColor = contentColor,
             )
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 LinearProgressIndicator(
-                    progress = { animatedProgress },
+                    progress = { animatedProgressState.value },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(8.dp)
@@ -556,6 +543,28 @@ private fun HeroBalanceSquircle(
             }
         }
     }
+}
+
+/**
+ * Isolated leaf composable so animating the balance value only recomposes this single Text node.
+ */
+@Composable
+private fun AnimatedHeroRemainingAmount(
+    remainingBudget: Double,
+    contentColor: Color,
+) {
+    val animatedRemaining by animateFloatAsState(
+        targetValue = remainingBudget.toFloat(),
+        animationSpec = ExpressiveMotion.slowSpatial(),
+        label = "HeroBalanceSpring",
+    )
+    Text(
+        text = formatCurrency(animatedRemaining.toDouble(), showCents = true),
+        style = MaterialTheme.typography.displayLarge,
+        color = contentColor,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
 }
 
 @Composable
@@ -696,14 +705,11 @@ private fun NextBillTile(
     }
 }
 
-@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun CategorySummaryRow(
     category: BudgetCategory,
     spent: Double,
     warningThreshold: Float,
-    sharedTransitionScope: SharedTransitionScope,
-    animatedVisibilityScope: AnimatedVisibilityScope,
     onClick: () -> Unit,
 ) {
     val ratio = if (category.monthlyLimit > 0.0) (spent / category.monthlyLimit).toFloat().coerceAtLeast(0f) else 0f
@@ -713,86 +719,79 @@ private fun CategorySummaryRow(
         animationSpec = ExpressiveMotion.fastEffects(),
         label = "RowAccent_${category.id}",
     )
-    val animatedRatio by animateFloatAsState(
+    val animatedRatioState = animateFloatAsState(
         targetValue = ratio.coerceIn(0f, 1f),
         animationSpec = ExpressiveMotion.defaultSpatial(),
         label = "RowProgress_${category.id}",
     )
 
-    with(sharedTransitionScope) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .sharedBounds(
-                    sharedContentState = rememberSharedContentState(key = "cat-card-${category.id}"),
-                    animatedVisibilityScope = animatedVisibilityScope,
-                    boundsTransform = { _, _ -> ExpressiveMotion.defaultSpatial() },
-                )
-                .clickable(onClick = onClick)
-                .padding(horizontal = 18.dp, vertical = 14.dp)
-                .testTag("category_bento_tile_${category.id}"),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 14.dp)
+            .testTag("category_bento_tile_${category.id}"),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.weight(1f),
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    modifier = Modifier.weight(1f),
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(category.accentColor.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(category.accentColor.copy(alpha = 0.15f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = category.icon,
-                            contentDescription = null,
-                            tint = category.accentColor,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                    Column {
-                        Text(
-                            text = category.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            text = "${formatCurrency(spent, false)} of ${formatCurrency(category.monthlyLimit, false)}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
+                    Icon(
+                        imageVector = category.icon,
+                        contentDescription = null,
+                        tint = category.accentColor,
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
-
-                Spacer(Modifier.width(8.dp))
-
-                Text(
-                    text = "${(ratio * 100).toInt()}%",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = animatedAccent,
-                )
+                Column {
+                    Text(
+                        text = category.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = "${formatCurrency(spent, false)} of ${formatCurrency(category.monthlyLimit, false)}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
 
-            LinearProgressIndicator(
-                progress = { animatedRatio },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(6.dp)
-                    .clip(CircleShape),
+            Spacer(Modifier.width(8.dp))
+
+            Text(
+                text = "${(ratio * 100).toInt()}%",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
                 color = animatedAccent,
-                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
             )
         }
+
+        LinearProgressIndicator(
+            progress = { animatedRatioState.value },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(CircleShape),
+            color = animatedAccent,
+            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        )
     }
 }

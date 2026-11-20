@@ -7,18 +7,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionLayout
-import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -103,7 +100,6 @@ import com.example.ui.screens.TransactionsScreen
 import com.example.ui.theme.ExpressiveMotion
 import com.example.ui.theme.budgetStatusPalette
 
-@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun CadenceApp(
     viewModel: CadenceViewModel,
@@ -126,6 +122,14 @@ fun CadenceApp(
     val performHaptic = rememberPixelHaptics()
     val reduceMotion = LocalReduceMotion.current
     var hasPromptedNotificationPermission by remember { mutableStateOf(false) }
+
+    // Hoisted per-tab scroll states preserve exact scroll offsets and avoid re-layout jumps on tab switches
+    val homeListState = rememberLazyListState()
+    val overviewListState = rememberLazyListState()
+    val categoriesListState = rememberLazyListState()
+    val transactionsListState = rememberLazyListState()
+    val recurringListState = rememberLazyListState()
+    val insightsListState = rememberLazyListState()
 
     val expenseNotificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -174,7 +178,7 @@ fun CadenceApp(
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isExpandedWidth = maxWidth >= 720.dp
 
-        SharedTransitionLayout {
+        Box(modifier = Modifier.fillMaxSize()) {
             Scaffold(
                 containerColor = MaterialTheme.colorScheme.surface,
                 snackbarHost = {
@@ -306,16 +310,10 @@ fun CadenceApp(
                                                 fadeOut(ExpressiveMotion.fastEffects())
                                         } else {
                                             val forward = targetState.ordinal > initialState.ordinal
-                                            val enter = slideInHorizontally(ExpressiveMotion.defaultSpatial()) { w ->
-                                                if (forward) w / 7 else -w / 7
-                                            } + fadeIn(ExpressiveMotion.fastEffects()) +
-                                                scaleIn(
-                                                    initialScale = 0.97f,
-                                                    animationSpec = ExpressiveMotion.defaultSpatial(),
-                                                )
-                                            val exit = slideOutHorizontally(ExpressiveMotion.fastSpatial()) { w ->
-                                                if (forward) -w / 8 else w / 8
-                                            } + fadeOut(ExpressiveMotion.fastEffects())
+                                            val enter = slideInHorizontally(ExpressiveMotion.fastSpatial()) { w ->
+                                                if (forward) w / 14 else -w / 14
+                                            } + fadeIn(ExpressiveMotion.fastEffects())
+                                            val exit = fadeOut(ExpressiveMotion.fastEffects())
                                             enter togetherWith exit
                                         }
                                     },
@@ -336,8 +334,7 @@ fun CadenceApp(
                                         CadenceTab.Home -> DashboardScreen(
                                             state = uiState,
                                             contentPadding = contentPadding,
-                                            sharedTransitionScope = this@SharedTransitionLayout,
-                                            animatedVisibilityScope = this@AnimatedContent,
+                                            listState = homeListState,
                                             onCategoryClick = { viewModel.expandCategory(it.id) },
                                             onViewAllActivity = {
                                                 activitySection = ActivitySection.TRANSACTIONS
@@ -362,6 +359,8 @@ fun CadenceApp(
                                             activeSection = budgetsSection,
                                             onSelectSection = { budgetsSection = it },
                                             contentPadding = contentPadding,
+                                            overviewListState = overviewListState,
+                                            categoriesListState = categoriesListState,
                                             onLimitChange = viewModel::updateCategoryLimit,
                                             onNewCategory = viewModel::openNewCategorySheet,
                                             onEditCategory = viewModel::openEditCategorySheet,
@@ -378,6 +377,8 @@ fun CadenceApp(
                                             activeSection = activitySection,
                                             onSelectSection = { activitySection = it },
                                             contentPadding = contentPadding,
+                                            transactionsListState = transactionsListState,
+                                            recurringListState = recurringListState,
                                             onSearchChange = viewModel::updateSearchQuery,
                                             onFilterCategory = viewModel::selectFilterCategory,
                                             onEdit = viewModel::openEditExpenseSheet,
@@ -391,6 +392,7 @@ fun CadenceApp(
                                         CadenceTab.Insights -> InsightsScreen(
                                             state = uiState,
                                             contentPadding = contentPadding,
+                                            listState = insightsListState,
                                         )
                                     }
                                 }
@@ -414,8 +416,10 @@ fun CadenceApp(
 
                                 androidx.compose.animation.AnimatedVisibility(
                                     visible = uiState.expandedCategoryId != null,
-                                    enter = fadeIn(ExpressiveMotion.fastEffects()),
-                                    exit = fadeOut(ExpressiveMotion.fastEffects()),
+                                    enter = fadeIn(ExpressiveMotion.fastEffects()) +
+                                        scaleIn(initialScale = 0.94f, animationSpec = ExpressiveMotion.fastSpatial()),
+                                    exit = fadeOut(ExpressiveMotion.fastEffects()) +
+                                        scaleOut(targetScale = 0.96f, animationSpec = ExpressiveMotion.fastEffects()),
                                 ) {
                                     val category = uiState.categories.find { it.id == uiState.expandedCategoryId }
                                     if (category != null) {
@@ -423,8 +427,6 @@ fun CadenceApp(
                                             category = category,
                                             transactions = uiState.transactionsForCategory(category.id),
                                             spent = uiState.spentForCategoryThisMonth(category.id),
-                                            sharedTransitionScope = this@SharedTransitionLayout,
-                                            animatedVisibilityScope = this@AnimatedVisibility,
                                             onDismiss = { viewModel.expandCategory(null) },
                                         )
                                     }
@@ -575,14 +577,11 @@ fun CadenceApp(
     }
 }
 
-@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun CategoryExpandedDetailOverlay(
     category: BudgetCategory,
     transactions: List<Transaction>,
     spent: Double,
-    sharedTransitionScope: SharedTransitionScope,
-    animatedVisibilityScope: AnimatedVisibilityScope,
     onDismiss: () -> Unit,
 ) {
     val ratio = if (category.monthlyLimit > 0.0) (spent / category.monthlyLimit).toFloat().coerceAtLeast(0f) else 0f
@@ -595,100 +594,93 @@ private fun CategoryExpandedDetailOverlay(
             .clickable(onClick = onDismiss),
         contentAlignment = Alignment.Center,
     ) {
-        with(sharedTransitionScope) {
-            Surface(
-                modifier = Modifier
-                    .padding(20.dp)
-                    .fillMaxWidth()
-                    .widthIn(max = 520.dp)
-                    .sharedBounds(
-                        sharedContentState = rememberSharedContentState(key = "cat-card-${category.id}"),
-                        animatedVisibilityScope = animatedVisibilityScope,
-                        boundsTransform = { _, _ -> ExpressiveMotion.defaultSpatial() },
-                    )
-                    .clickable(enabled = false) {},
-                shape = RoundedCornerShape(36.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        Surface(
+            modifier = Modifier
+                .padding(20.dp)
+                .fillMaxWidth()
+                .widthIn(max = 520.dp)
+                .clickable(enabled = false) {},
+            shape = RoundedCornerShape(36.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(category.accentColor.copy(alpha = 0.18f)),
+                            contentAlignment = Alignment.Center,
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(CircleShape)
-                                    .background(category.accentColor.copy(alpha = 0.18f)),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(category.icon, contentDescription = null, tint = category.accentColor)
-                            }
-                            Column {
-                                Text(category.name, style = MaterialTheme.typography.headlineMedium)
-                                Text(
-                                    text = "${formatCurrency(spent, false)} of ${formatCurrency(category.monthlyLimit, false)}",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = statusPalette.accent,
-                                )
-                            }
+                            Icon(category.icon, contentDescription = null, tint = category.accentColor)
                         }
-                        FilledTonalIconButton(
-                            onClick = onDismiss,
-                            modifier = Modifier.testTag("close_category_overlay_button"),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Close,
-                                contentDescription = stringResource(R.string.cd_close),
+                        Column {
+                            Text(category.name, style = MaterialTheme.typography.headlineMedium)
+                            Text(
+                                text = "${formatCurrency(spent, false)} of ${formatCurrency(category.monthlyLimit, false)}",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = statusPalette.accent,
                             )
                         }
                     }
-
-                    WavyProgressIndicator(
-                        progress = ratio.coerceIn(0f, 1f),
-                        color = statusPalette.accent,
-                        trackColor = MaterialTheme.colorScheme.surfaceContainerLowest,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(14.dp),
-                    )
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
-
-                    if (transactions.isEmpty()) {
-                        Text(
-                            text = "No transactions yet this month.",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    FilledTonalIconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.testTag("close_category_overlay_button"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = stringResource(R.string.cd_close),
                         )
-                    } else {
-                        transactions.take(5).forEach { tx ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(tx.merchantOrNote, style = MaterialTheme.typography.titleMedium)
-                                    Text(
-                                        text = tx.date.formatDayOfWeekShort(),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
+                    }
+                }
+
+                WavyProgressIndicator(
+                    progress = ratio.coerceIn(0f, 1f),
+                    color = statusPalette.accent,
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(14.dp),
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+
+                if (transactions.isEmpty()) {
+                    Text(
+                        text = "No transactions yet this month.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    transactions.take(5).forEach { tx ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(tx.merchantOrNote, style = MaterialTheme.typography.titleMedium)
                                 Text(
-                                    text = "-${formatCurrency(tx.amount, showCents = true)}",
-                                    style = MaterialTheme.typography.titleMedium,
+                                    text = tx.date.formatDayOfWeekShort(),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
+                            Text(
+                                text = "-${formatCurrency(tx.amount, showCents = true)}",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
                         }
                     }
                 }

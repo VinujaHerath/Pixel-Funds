@@ -84,6 +84,18 @@ gradle assembleDebug
 gradle :app:testDebugUnitTest
 ```
 
+### Local Android Studio Setup
+
+If you clone or download this repository outside AI Studio and `:app:validateSigningDebug` reports a missing `debug.keystore` in the project root, copy your default Android debug keystore into the project root (or decode `debug.keystore.base64` if included):
+
+```bash
+# macOS / Linux
+cp ~/.android/debug.keystore ./debug.keystore
+
+# Windows (PowerShell)
+Copy-Item "$env:USERPROFILE\.android\debug.keystore" ".\debug.keystore"
+```
+
 ## Requirements
 
 - **Min SDK**: 24 (Android 7.0)

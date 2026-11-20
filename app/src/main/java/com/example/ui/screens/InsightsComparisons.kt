@@ -71,6 +71,9 @@ import com.example.ui.theme.LocalFinancialColors
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+private val ComparisonGridDashEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f)
+private val ComparisonCurveDashEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f)
+
 @Immutable
 internal data class MonthKey(val year: Int, val month: Int) : Comparable<MonthKey> {
     fun toFirstDay(): LocalDay = LocalDay(year, month, 1)
@@ -239,17 +242,29 @@ internal fun MonthlyComparisonAnalytics(state: CadenceUiState) {
                         val bottomPad = 8.dp.toPx()
                         val chartH = (size.height - topPad - bottomPad).coerceAtLeast(1f)
                         val baseY = topPad + chartH
-                        val dash = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f)
+                        val midY = topPad + chartH / 2f
+                        val gridStroke = 1.dp.toPx()
 
-                        listOf(topPad, topPad + chartH / 2f, baseY).forEachIndexed { idx, y ->
-                            drawLine(
-                                color = gridColor,
-                                start = Offset(0f, y),
-                                end = Offset(size.width, y),
-                                strokeWidth = if (idx == 2) 1.5.dp.toPx() else 1.dp.toPx(),
-                                pathEffect = if (idx == 2) null else dash,
-                            )
-                        }
+                        drawLine(
+                            color = gridColor,
+                            start = Offset(0f, topPad),
+                            end = Offset(size.width, topPad),
+                            strokeWidth = gridStroke,
+                            pathEffect = ComparisonGridDashEffect,
+                        )
+                        drawLine(
+                            color = gridColor,
+                            start = Offset(0f, midY),
+                            end = Offset(size.width, midY),
+                            strokeWidth = gridStroke,
+                            pathEffect = ComparisonGridDashEffect,
+                        )
+                        drawLine(
+                            color = gridColor,
+                            start = Offset(0f, baseY),
+                            end = Offset(size.width, baseY),
+                            strokeWidth = 1.5.dp.toPx(),
+                        )
 
                         val slot = size.width / overviewTotals.size.coerceAtLeast(1)
                         val barW = (slot * 0.54f).coerceIn(8.dp.toPx(), 28.dp.toPx())
@@ -752,17 +767,29 @@ internal fun YearlyComparisonAnalytics(state: CadenceUiState) {
                         val bottomPad = 6.dp.toPx()
                         val chartH = (size.height - topPad - bottomPad).coerceAtLeast(1f)
                         val baseY = topPad + chartH
-                        val dash = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f)
+                        val midY = topPad + chartH / 2f
+                        val gridStroke = 1.dp.toPx()
 
-                        listOf(topPad, topPad + chartH / 2f, baseY).forEachIndexed { idx, y ->
-                            drawLine(
-                                color = gridColor,
-                                start = Offset(0f, y),
-                                end = Offset(size.width, y),
-                                strokeWidth = if (idx == 2) 1.5.dp.toPx() else 1.dp.toPx(),
-                                pathEffect = if (idx == 2) null else dash,
-                            )
-                        }
+                        drawLine(
+                            color = gridColor,
+                            start = Offset(0f, topPad),
+                            end = Offset(size.width, topPad),
+                            strokeWidth = gridStroke,
+                            pathEffect = ComparisonGridDashEffect,
+                        )
+                        drawLine(
+                            color = gridColor,
+                            start = Offset(0f, midY),
+                            end = Offset(size.width, midY),
+                            strokeWidth = gridStroke,
+                            pathEffect = ComparisonGridDashEffect,
+                        )
+                        drawLine(
+                            color = gridColor,
+                            start = Offset(0f, baseY),
+                            end = Offset(size.width, baseY),
+                            strokeWidth = 1.5.dp.toPx(),
+                        )
 
                         val slot = size.width / 12f
                         val barW = (slot * 0.34f).coerceIn(4.dp.toPx(), 10.dp.toPx())
@@ -1505,17 +1532,29 @@ private fun CumulativeMonthPaceChart(
                 val bottomPad = 8.dp.toPx()
                 val chartH = (size.height - topPad - bottomPad).coerceAtLeast(1f)
                 val baseY = topPad + chartH
-                val dashGrid = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f)
+                val midY = topPad + chartH / 2f
+                val gridStroke = 1.dp.toPx()
 
-                listOf(topPad, topPad + chartH / 2f, baseY).forEachIndexed { idx, y ->
-                    drawLine(
-                        color = gridColor,
-                        start = Offset(0f, y),
-                        end = Offset(size.width, y),
-                        strokeWidth = if (idx == 2) 1.5.dp.toPx() else 1.dp.toPx(),
-                        pathEffect = if (idx == 2) null else dashGrid,
-                    )
-                }
+                drawLine(
+                    color = gridColor,
+                    start = Offset(0f, topPad),
+                    end = Offset(size.width, topPad),
+                    strokeWidth = gridStroke,
+                    pathEffect = ComparisonGridDashEffect,
+                )
+                drawLine(
+                    color = gridColor,
+                    start = Offset(0f, midY),
+                    end = Offset(size.width, midY),
+                    strokeWidth = gridStroke,
+                    pathEffect = ComparisonGridDashEffect,
+                )
+                drawLine(
+                    color = gridColor,
+                    start = Offset(0f, baseY),
+                    end = Offset(size.width, baseY),
+                    strokeWidth = 1.5.dp.toPx(),
+                )
 
                 // Draw Month B curve (dashed tertiary)
                 if (curveB.isNotEmpty()) {
@@ -1532,7 +1571,7 @@ private fun CumulativeMonthPaceChart(
                             width = 2.4.dp.toPx(),
                             cap = StrokeCap.Round,
                             join = StrokeJoin.Round,
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f),
+                            pathEffect = ComparisonCurveDashEffect,
                         ),
                     )
                 }

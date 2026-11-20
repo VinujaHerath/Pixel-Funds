@@ -6,8 +6,8 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
@@ -17,7 +17,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -47,6 +46,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -141,9 +142,11 @@ fun formatCurrency(amount: Double, showCents: Boolean = true): String {
     )
 }
 
+private val FabShape = RoundedCornerShape(22.dp)
+
 /**
  * Material 3 Expressive organic wavy progress indicator with optional vertical elapsed-day marker.
- * Optimized for Pixel 90/120Hz Smooth Display with zero per-frame Path allocations and Reduce Motion support.
+ * Deferring phase and progress reads strictly into the Draw phase achieves zero recompositions at 120Hz.
  */
 @Composable
 fun WavyProgressIndicator(
@@ -157,15 +160,49 @@ fun WavyProgressIndicator(
     markerFraction: Float? = null,
     markerColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
-    val clamped = progress.coerceIn(0f, 1f)
-    val reduceMotion = LocalReduceMotion.current
-    val reusablePath = remember { Path() }
+    WavyProgressIndicator(
+        progressProvider = { progress },
+        colorProvider = { color },
+        trackColor = trackColor,
+        modifier = modifier,
+        strokeWidth = strokeWidth,
+        waveAmplitude = waveAmplitude,
+        wavelength = wavelength,
+        markerFraction = markerFraction,
+        markerColor = markerColor,
+    )
+}
 
-    val phase: Float = if (reduceMotion) {
-        0f
+@Composable
+fun WavyProgressIndicator(
+    progressProvider: () -> Float,
+    colorProvider: () -> Color,
+    trackColor: Color,
+    modifier: Modifier = Modifier,
+    strokeWidth: Dp = 5.dp,
+    waveAmplitude: Dp = 2.6.dp,
+    wavelength: Dp = 26.dp,
+    markerFraction: Float? = null,
+    markerColor: Color = MaterialTheme.colorScheme.onSurface,
+) {
+    val reduceMotion = LocalReduceMotion.current
+    val density = LocalDensity.current
+    val reusablePath = remember { Path() }
+    val strokePx = with(density) { strokeWidth.toPx() }
+    val waveStroke = remember(strokePx) {
+        Stroke(
+            width = strokePx,
+            cap = StrokeCap.Round,
+            join = StrokeJoin.Round,
+        )
+    }
+
+    // Keep phase as a State<Float> and read it ONLY inside Canvas so this composable NEVER recomposes per frame.
+    val phaseState = if (reduceMotion) {
+        null
     } else {
         val infiniteTransition = rememberInfiniteTransition(label = "WavyPhase")
-        val animated by infiniteTransition.animateFloat(
+        infiniteTransition.animateFloat(
             initialValue = 0f,
             targetValue = (2.0 * PI).toFloat(),
             animationSpec = infiniteRepeatable(
@@ -174,11 +211,12 @@ fun WavyProgressIndicator(
             ),
             label = "WavyPhaseAngle",
         )
-        animated
     }
 
     Canvas(modifier = modifier) {
-        val strokePx = strokeWidth.toPx()
+        val clamped = progressProvider().coerceIn(0f, 1f)
+        val activeColor = colorProvider()
+        val phase = phaseState?.value ?: 0f
         val ampPx = if (reduceMotion) 0f else waveAmplitude.toPx()
         val waveLenPx = wavelength.toPx().coerceAtLeast(12f)
         val centerY = size.height / 2f
@@ -204,7 +242,7 @@ fun WavyProgressIndicator(
         if (clamped > 0.005f) {
             if (reduceMotion) {
                 drawLine(
-                    color = color,
+                    color = activeColor,
                     start = Offset(startX, centerY),
                     end = Offset(fillEndX, centerY),
                     strokeWidth = strokePx,
@@ -212,17 +250,19 @@ fun WavyProgressIndicator(
                 )
             } else {
                 reusablePath.reset()
-                val stepPx = 3f
+                val stepPx = 6f
                 var x = startX
                 var first = true
                 val effectiveAmp = if (clamped > 0.04f) ampPx else ampPx * (clamped / 0.04f)
                 val twoPi = (2.0 * PI).toFloat()
+                val invWaveLen = twoPi / waveLenPx
+                val invTaperSpan = 1f / (waveLenPx * 0.35f)
 
                 while (x <= fillEndX) {
-                    val angle = ((x - startX) / waveLenPx) * twoPi - phase
+                    val angle = (x - startX) * invWaveLen - phase
                     val distFromStart = (x - startX).coerceAtLeast(0f)
                     val distFromEnd = (fillEndX - x).coerceAtLeast(0f)
-                    val taper = (minOf(distFromStart, distFromEnd) / (waveLenPx * 0.35f)).coerceIn(0f, 1f)
+                    val taper = (minOf(distFromStart, distFromEnd) * invTaperSpan).coerceIn(0f, 1f)
                     val y = centerY + sin(angle) * effectiveAmp * taper
                     if (first) {
                         reusablePath.moveTo(x, y)
@@ -238,12 +278,8 @@ fun WavyProgressIndicator(
 
                 drawPath(
                     path = reusablePath,
-                    color = color,
-                    style = Stroke(
-                        width = strokePx,
-                        cap = StrokeCap.Round,
-                        join = StrokeJoin.Round,
-                    ),
+                    color = activeColor,
+                    style = waveStroke,
                 )
             }
         }
@@ -263,7 +299,8 @@ fun WavyProgressIndicator(
 }
 
 /**
- * Material 3 Expressive Floating Pill Navigation Toolbar paired with a morphing Vibrant FAB.
+ * Material 3 Expressive Floating Pill Navigation Toolbar paired with a tactile Vibrant FAB.
+ * Uses GPU-only graphicsLayer press scaling and draw-phase pill fills for locked 120Hz responsiveness.
  */
 @Composable
 fun FloatingPillToolbar(
@@ -276,10 +313,10 @@ fun FloatingPillToolbar(
     val reduceMotion = LocalReduceMotion.current
     val fabInteraction = remember { MutableInteractionSource() }
     val isFabPressed by fabInteraction.collectIsPressedAsState()
-    val fabCorner by animateDpAsState(
-        targetValue = if (isFabPressed) 14.dp else 28.dp,
-        animationSpec = if (reduceMotion) ExpressiveMotion.fastEffects() else ExpressiveMotion.fastSpatial(),
-        label = "FabShapeMorph",
+    val fabScaleState = animateFloatAsState(
+        targetValue = if (isFabPressed && !reduceMotion) 0.92f else 1f,
+        animationSpec = ExpressiveMotion.fastSpatial(),
+        label = "FabPressScale",
     )
 
     Row(
@@ -303,27 +340,30 @@ fun FloatingPillToolbar(
                 CadenceTab.entries.forEach { tab ->
                     val selected = tab == activeTab
                     var clickNonce by remember(tab) { mutableIntStateOf(0) }
-                    val pillCorner by animateDpAsState(
-                        targetValue = if (selected) 24.dp else 14.dp,
-                        animationSpec = if (reduceMotion) ExpressiveMotion.fastEffects() else ExpressiveMotion.fastSpatial(),
-                        label = "NavPillMorph_${tab.name}",
-                    )
-                    val pillContainer by animateColorAsState(
+                    val pillContainerState = animateColorAsState(
                         targetValue = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
                         animationSpec = ExpressiveMotion.fastEffects(),
                         label = "NavPillBg_${tab.name}",
                     )
-                    val iconTint by animateColorAsState(
-                        targetValue = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        animationSpec = ExpressiveMotion.fastEffects(),
-                        label = "NavIconTint_${tab.name}",
-                    )
+                    val iconTint = if (selected) {
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
                     Box(
                         modifier = Modifier
                             .heightIn(min = 48.dp)
-                            .clip(RoundedCornerShape(pillCorner))
-                            .background(pillContainer)
+                            .clip(CircleShape)
+                            .drawBehind {
+                                val bg = pillContainerState.value
+                                if (bg.alpha > 0.005f) {
+                                    val r = size.height / 2f
+                                    drawRoundRect(
+                                        color = bg,
+                                        cornerRadius = CornerRadius(r, r),
+                                    )
+                                }
+                            }
                             .clickable {
                                 clickNonce += 1
                                 performHaptic(HapticFeedbackType.TextHandleMove)
@@ -362,19 +402,24 @@ fun FloatingPillToolbar(
             }
         }
 
-        // Morphing Vibrant Add Expense FAB
+        // Tactile GPU-scaled Vibrant Add Expense FAB (static shape avoids per-frame shadow rebuild)
         Surface(
             onClick = {
                 performHaptic(HapticFeedbackType.LongPress)
                 onAddExpense()
             },
             interactionSource = fabInteraction,
-            shape = RoundedCornerShape(fabCorner),
+            shape = FabShape,
             color = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
             shadowElevation = 6.dp,
             modifier = Modifier
                 .size(58.dp)
+                .graphicsLayer {
+                    val s = fabScaleState.value
+                    scaleX = s
+                    scaleY = s
+                }
                 .testTag("add_expense_fab"),
         ) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {

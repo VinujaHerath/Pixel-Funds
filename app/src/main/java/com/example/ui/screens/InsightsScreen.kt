@@ -27,8 +27,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -74,6 +76,9 @@ import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
+private val InsightsGridDashEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f)
+private val InsightsAverageDashEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f)
+
 private enum class InsightsMode(val label: String) {
     TRENDS("Trends"),
     MONTHLY("Monthly"),
@@ -114,19 +119,21 @@ internal fun niceAxisCeiling(rawMax: Double): Double {
 fun InsightsScreen(
     state: CadenceUiState,
     contentPadding: PaddingValues,
+    listState: LazyListState = rememberLazyListState(),
 ) {
     val performHaptic = rememberPixelHaptics()
     val reduceMotion = LocalReduceMotion.current
     var activeMode by remember { mutableStateOf(InsightsMode.TRENDS) }
 
     LazyColumn(
+        state = listState,
         modifier = Modifier
             .fillMaxSize()
             .testTag("insights_list"),
         contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        item(key = "insights_header_and_modes") {
+        item(key = "insights_header_and_modes", contentType = "insights_header") {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
                     text = stringResource(R.string.insights_title),
@@ -182,7 +189,7 @@ fun InsightsScreen(
             }
         }
 
-        item(key = "insights_mode_body") {
+        item(key = "insights_mode_body", contentType = "insights_body") {
             AnimatedContent(
                 targetState = activeMode,
                 transitionSpec = {
@@ -455,17 +462,29 @@ private fun DailyTrendsAnalytics(state: CadenceUiState) {
                         val bottomPad = 10.dp.toPx()
                         val chartHeight = (size.height - topPad - bottomPad).coerceAtLeast(1f)
                         val baselineY = topPad + chartHeight
-                        val dashEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f)
+                        val midY = topPad + chartHeight / 2f
+                        val gridStroke = 1.dp.toPx()
 
-                        listOf(topPad, topPad + chartHeight / 2f, baselineY).forEachIndexed { lineIdx, y ->
-                            drawLine(
-                                color = gridLineColor,
-                                start = Offset(0f, y),
-                                end = Offset(size.width, y),
-                                strokeWidth = if (lineIdx == 2) 1.5.dp.toPx() else 1.dp.toPx(),
-                                pathEffect = if (lineIdx == 2) null else dashEffect,
-                            )
-                        }
+                        drawLine(
+                            color = gridLineColor,
+                            start = Offset(0f, topPad),
+                            end = Offset(size.width, topPad),
+                            strokeWidth = gridStroke,
+                            pathEffect = InsightsGridDashEffect,
+                        )
+                        drawLine(
+                            color = gridLineColor,
+                            start = Offset(0f, midY),
+                            end = Offset(size.width, midY),
+                            strokeWidth = gridStroke,
+                            pathEffect = InsightsGridDashEffect,
+                        )
+                        drawLine(
+                            color = gridLineColor,
+                            start = Offset(0f, baselineY),
+                            end = Offset(size.width, baselineY),
+                            strokeWidth = 1.5.dp.toPx(),
+                        )
 
                         val count = dailyPoints.size
                         val slotWidth = size.width / count
@@ -534,7 +553,7 @@ private fun DailyTrendsAnalytics(state: CadenceUiState) {
                                 start = Offset(0f, avgY),
                                 end = Offset(size.width, avgY),
                                 strokeWidth = 1.8.dp.toPx(),
-                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f),
+                                pathEffect = InsightsAverageDashEffect,
                             )
                         }
                     }

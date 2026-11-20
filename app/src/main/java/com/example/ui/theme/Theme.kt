@@ -12,39 +12,54 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
 /**
- * Centralized Material 3 Expressive spring physics tokens.
- * Spatial springs use lively overshoot for layout expansion, morphing, and charts;
- * Effects springs are critically damped for crisp color and alpha shifts.
+ * Centralized Material 3 Expressive spring physics tokens tuned for crisp 120Hz Pixel displays.
+ * All specs are cached as singletons to avoid per-recomposition allocations.
  */
 object ExpressiveMotion {
-    fun <T> fastSpatial(): SpringSpec<T> = spring(
-        dampingRatio = 0.72f,
-        stiffness = 650f,
-    )
-
-    fun <T> defaultSpatial(): SpringSpec<T> = spring(
-        dampingRatio = 0.74f,
-        stiffness = 380f,
-    )
-
-    fun <T> slowSpatial(): SpringSpec<T> = spring(
+    private val fastSpatialSpec = spring<Any>(
         dampingRatio = 0.78f,
-        stiffness = 220f,
+        stiffness = 850f,
     )
 
-    fun <T> fastEffects(): SpringSpec<T> = spring(
-        dampingRatio = Spring.DampingRatioNoBouncy,
-        stiffness = 600f,
+    private val defaultSpatialSpec = spring<Any>(
+        dampingRatio = 0.80f,
+        stiffness = 520f,
     )
 
-    fun <T> defaultEffects(): SpringSpec<T> = spring(
-        dampingRatio = Spring.DampingRatioNoBouncy,
+    private val slowSpatialSpec = spring<Any>(
+        dampingRatio = 0.84f,
         stiffness = 320f,
     )
+
+    private val fastEffectsSpec = spring<Any>(
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = 900f,
+    )
+
+    private val defaultEffectsSpec = spring<Any>(
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = 500f,
+    )
+
+    @Suppress("UNCHECKED_CAST")
+    fun <T> fastSpatial(): SpringSpec<T> = fastSpatialSpec as SpringSpec<T>
+
+    @Suppress("UNCHECKED_CAST")
+    fun <T> defaultSpatial(): SpringSpec<T> = defaultSpatialSpec as SpringSpec<T>
+
+    @Suppress("UNCHECKED_CAST")
+    fun <T> slowSpatial(): SpringSpec<T> = slowSpatialSpec as SpringSpec<T>
+
+    @Suppress("UNCHECKED_CAST")
+    fun <T> fastEffects(): SpringSpec<T> = fastEffectsSpec as SpringSpec<T>
+
+    @Suppress("UNCHECKED_CAST")
+    fun <T> defaultEffects(): SpringSpec<T> = defaultEffectsSpec as SpringSpec<T>
 }
 
 val CadenceShapes = Shapes(
@@ -62,12 +77,14 @@ fun CadenceTheme(
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    val colorScheme = remember(context, darkTheme, dynamicColor) {
+        when {
+            dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+                if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            }
+            darkTheme -> CadenceDarkColorScheme
+            else -> CadenceLightColorScheme
         }
-        darkTheme -> CadenceDarkColorScheme
-        else -> CadenceLightColorScheme
     }
 
     val financialColors = if (darkTheme) DarkFinancialColors else LightFinancialColors

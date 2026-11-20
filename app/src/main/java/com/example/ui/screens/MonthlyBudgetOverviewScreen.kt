@@ -9,19 +9,20 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -63,6 +64,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
@@ -93,6 +95,7 @@ import kotlin.math.roundToInt
 fun MonthlyBudgetOverviewScreen(
     state: MonthlyBudgetOverviewUiState,
     contentPadding: PaddingValues,
+    listState: LazyListState = rememberLazyListState(),
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit,
     onJumpToCurrentMonth: () -> Unit,
@@ -125,6 +128,7 @@ fun MonthlyBudgetOverviewScreen(
     }
 
     LazyColumn(
+        state = listState,
         modifier = Modifier
             .fillMaxSize()
             .testTag("monthly_budget_overview_screen"),
@@ -132,13 +136,13 @@ fun MonthlyBudgetOverviewScreen(
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         if (headerContent != null) {
-            item(key = "overview_external_header") {
+            item(key = "overview_external_header", contentType = "overview_header") {
                 headerContent()
             }
         }
 
         // Clean Inline Month Switcher
-        item(key = "overview_period_bar") {
+        item(key = "overview_period_bar", contentType = "overview_period_bar") {
             InlinePeriodSelectorRow(
                 periodTitle = state.periodTitle,
                 isCurrentPeriod = state.isCurrentPeriod,
@@ -200,7 +204,7 @@ fun MonthlyBudgetOverviewScreen(
 
             MonthlyBudgetOverviewLoadState.Ready -> {
                 // 1. Clean Hero Gauge Card (Remaining + Spent vs Limit)
-                item(key = "overview_hero_gauge") {
+                item(key = "overview_hero_gauge", contentType = "overview_hero_gauge") {
                     MonthlyLimitComparisonHeroCard(
                         state = state,
                         onEditLimitClick = {
@@ -211,12 +215,12 @@ fun MonthlyBudgetOverviewScreen(
                 }
 
                 // 2. Simple 2-Tile Pace Strip (Safe / day + Projected end)
-                item(key = "overview_pace_strip") {
+                item(key = "overview_pace_strip", contentType = "overview_pace_strip") {
                     MonthlySimplePaceRow(state = state)
                 }
 
                 // 3. Grouped Category Breakdown Card
-                item(key = "overview_categories_section") {
+                item(key = "overview_categories_section", contentType = "overview_categories") {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(
                             modifier = Modifier
@@ -309,7 +313,7 @@ fun MonthlyBudgetOverviewScreen(
                 }
 
                 // 4. Compact Recent Expenses Card (Latest 3)
-                item(key = "overview_recent_section") {
+                item(key = "overview_recent_section", contentType = "overview_recent") {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(
                             modifier = Modifier
@@ -507,12 +511,12 @@ private fun MonthlyLimitComparisonHeroCard(
         warningThreshold = state.warningThresholdRatio,
     )
 
-    val animatedRatio by animateFloatAsState(
+    val animatedRatioState = animateFloatAsState(
         targetValue = state.usageRatio.coerceIn(0f, 1f),
         animationSpec = if (reduceMotion) ExpressiveMotion.fastEffects() else ExpressiveMotion.slowSpatial(),
         label = "MonthlyGaugeRatio",
     )
-    val gaugeAccent by animateColorAsState(
+    val gaugeAccentState = animateColorAsState(
         targetValue = statusPalette.accent,
         animationSpec = ExpressiveMotion.fastEffects(),
         label = "MonthlyGaugeAccent",
@@ -600,41 +604,45 @@ private fun MonthlyLimitComparisonHeroCard(
                 contentAlignment = Alignment.Center,
             ) {
                 val trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
-                Canvas(
+                val hasSpend = state.totalSpent > 0.0
+                Box(
                     modifier = Modifier
                         .size(196.dp)
+                        .drawWithCache {
+                            val strokePx = 15.dp.toPx()
+                            val inset = strokePx / 2f + 4.dp.toPx()
+                            val arcSize = Size(size.width - inset * 2f, size.height - inset * 2f)
+                            val topLeft = Offset(inset, inset)
+                            val arcStroke = Stroke(width = strokePx, cap = StrokeCap.Round)
+                            val startAngle = 150f
+                            val maxSweep = 240f
+                            onDrawBehind {
+                                drawArc(
+                                    color = trackColor,
+                                    startAngle = startAngle,
+                                    sweepAngle = maxSweep,
+                                    useCenter = false,
+                                    topLeft = topLeft,
+                                    size = arcSize,
+                                    style = arcStroke,
+                                )
+                                val activeSweep = (maxSweep * animatedRatioState.value)
+                                    .coerceAtLeast(if (hasSpend) 4f else 0f)
+                                if (activeSweep > 0f) {
+                                    drawArc(
+                                        color = gaugeAccentState.value,
+                                        startAngle = startAngle,
+                                        sweepAngle = activeSweep,
+                                        useCenter = false,
+                                        topLeft = topLeft,
+                                        size = arcSize,
+                                        style = arcStroke,
+                                    )
+                                }
+                            }
+                        }
                         .testTag("overview_gauge_canvas"),
-                ) {
-                    val strokePx = 15.dp.toPx()
-                    val inset = strokePx / 2f + 4.dp.toPx()
-                    val arcSize = Size(size.width - inset * 2f, size.height - inset * 2f)
-                    val topLeft = Offset(inset, inset)
-                    val startAngle = 150f
-                    val maxSweep = 240f
-
-                    drawArc(
-                        color = trackColor,
-                        startAngle = startAngle,
-                        sweepAngle = maxSweep,
-                        useCenter = false,
-                        topLeft = topLeft,
-                        size = arcSize,
-                        style = Stroke(width = strokePx, cap = StrokeCap.Round),
-                    )
-
-                    val activeSweep = (maxSweep * animatedRatio).coerceAtLeast(if (state.totalSpent > 0.0) 4f else 0f)
-                    if (activeSweep > 0f) {
-                        drawArc(
-                            color = gaugeAccent,
-                            startAngle = startAngle,
-                            sweepAngle = activeSweep,
-                            useCenter = false,
-                            topLeft = topLeft,
-                            size = arcSize,
-                            style = Stroke(width = strokePx, cap = StrokeCap.Round),
-                        )
-                    }
-                }
+                )
 
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -657,7 +665,7 @@ private fun MonthlyLimitComparisonHeroCard(
                             else "${state.usagePercent}% used"
                         } else "—",
                         style = MaterialTheme.typography.labelLarge,
-                        color = gaugeAccent,
+                        color = statusPalette.accent,
                         modifier = Modifier.testTag("overview_usage_percent"),
                     )
                 }
@@ -725,9 +733,7 @@ private fun MonthlySimplePaceRow(state: MonthlyBudgetOverviewUiState) {
     val projectedOver = state.budgetLimit > 0.0 && state.projectedMonthEndSpend > state.budgetLimit
 
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(IntrinsicSize.Max),
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         // Left: Safe / day
@@ -736,7 +742,7 @@ private fun MonthlySimplePaceRow(state: MonthlyBudgetOverviewUiState) {
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             modifier = Modifier
                 .weight(1f)
-                .fillMaxHeight(),
+                .heightIn(min = 108.dp),
         ) {
             Column(
                 modifier = Modifier.padding(18.dp),
@@ -772,7 +778,7 @@ private fun MonthlySimplePaceRow(state: MonthlyBudgetOverviewUiState) {
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             modifier = Modifier
                 .weight(1f)
-                .fillMaxHeight(),
+                .heightIn(min = 108.dp),
         ) {
             Column(
                 modifier = Modifier.padding(18.dp),
@@ -814,7 +820,7 @@ private fun OverviewCategoryRow(
     warningThreshold: Float,
 ) {
     val statusPalette = budgetStatusPalette(item.usageRatio, warningThreshold)
-    val animatedProgress by animateFloatAsState(
+    val animatedProgressState = animateFloatAsState(
         targetValue = item.usageRatio.coerceIn(0f, 1f),
         animationSpec = ExpressiveMotion.defaultSpatial(),
         label = "OverviewCatProgress_${item.categoryId}",
@@ -886,7 +892,7 @@ private fun OverviewCategoryRow(
         }
 
         LinearProgressIndicator(
-            progress = { animatedProgress },
+            progress = { animatedProgressState.value },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(6.dp)

@@ -19,8 +19,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -92,6 +94,7 @@ private enum class RecurringFilter { BOTH, RECURRING, SUBSCRIPTIONS }
 fun RecurringAndSubscriptionsContent(
     state: CadenceUiState,
     contentPadding: PaddingValues,
+    listState: LazyListState = rememberLazyListState(),
     headerContent: @Composable () -> Unit,
     onAddRecurring: (RecurringKind) -> Unit,
     onEditRecurring: (RecurringItem) -> Unit,
@@ -101,23 +104,24 @@ fun RecurringAndSubscriptionsContent(
     val performHaptic = rememberPixelHaptics()
     var filter by remember { mutableStateOf(RecurringFilter.BOTH) }
 
-    val recurringBills = remember(state.recurringItems) { state.recurringBills }
-    val subscriptions = remember(state.recurringItems) { state.subscriptions }
+    val recurringBills = state.recurringBills
+    val subscriptions = state.subscriptions
     val categoryMap = remember(state.categories) { state.categories.associateBy { it.id } }
 
     LazyColumn(
+        state = listState,
         modifier = Modifier
             .fillMaxWidth()
             .testTag("recurring_and_subs_list"),
         contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item(key = "header_switcher") {
+        item(key = "header_switcher", contentType = "recurring_header_switcher") {
             headerContent()
         }
 
         // Side-by-side Recurring vs Subscriptions Bento Comparison
-        item(key = "side_by_side_summary") {
+        item(key = "side_by_side_summary", contentType = "recurring_summary") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -259,7 +263,7 @@ fun RecurringAndSubscriptionsContent(
 
         // Section 1: Recurring Transactions / Fixed Bills
         if (filter == RecurringFilter.BOTH || filter == RecurringFilter.RECURRING) {
-            item(key = "section_recurring_header") {
+            item(key = "section_recurring_header", contentType = "section_header") {
                 SectionKindHeader(
                     icon = Icons.Rounded.Repeat,
                     title = stringResource(R.string.recurring_bills_title),
@@ -270,7 +274,7 @@ fun RecurringAndSubscriptionsContent(
                 )
             }
             if (recurringBills.isEmpty()) {
-                item(key = "empty_recurring_bills") {
+                item(key = "empty_recurring_bills", contentType = "empty_card") {
                     EmptyKindCard(
                         message = stringResource(R.string.recurring_empty_bills),
                         actionLabel = stringResource(R.string.recurring_add_bill),
@@ -278,7 +282,11 @@ fun RecurringAndSubscriptionsContent(
                     )
                 }
             } else {
-                items(recurringBills, key = { "rec_${it.id}" }) { item ->
+                items(
+                    items = recurringBills,
+                    key = { "rec_${it.id}" },
+                    contentType = { "recurring_card" },
+                ) { item ->
                     RecurringItemCard(
                         item = item,
                         category = categoryMap[item.categoryId],
@@ -295,7 +303,7 @@ fun RecurringAndSubscriptionsContent(
 
         // Section 2: Subscriptions (right below so both are visible together!)
         if (filter == RecurringFilter.BOTH || filter == RecurringFilter.SUBSCRIPTIONS) {
-            item(key = "section_subscriptions_header") {
+            item(key = "section_subscriptions_header", contentType = "section_header") {
                 SectionKindHeader(
                     icon = Icons.Rounded.Subscriptions,
                     title = stringResource(R.string.subscriptions_title),
@@ -306,7 +314,7 @@ fun RecurringAndSubscriptionsContent(
                 )
             }
             if (subscriptions.isEmpty()) {
-                item(key = "empty_subscriptions") {
+                item(key = "empty_subscriptions", contentType = "empty_card") {
                     EmptyKindCard(
                         message = stringResource(R.string.recurring_empty_subs),
                         actionLabel = stringResource(R.string.recurring_add_sub),
@@ -314,7 +322,11 @@ fun RecurringAndSubscriptionsContent(
                     )
                 }
             } else {
-                items(subscriptions, key = { "sub_${it.id}" }) { item ->
+                items(
+                    items = subscriptions,
+                    key = { "sub_${it.id}" },
+                    contentType = { "recurring_card" },
+                ) { item ->
                     RecurringItemCard(
                         item = item,
                         category = categoryMap[item.categoryId],

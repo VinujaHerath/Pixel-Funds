@@ -67,8 +67,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.testTag
@@ -549,6 +549,8 @@ private fun ScheduleTypeSegment(
     }
 }
 
+private val NumpadKeyShape = RoundedCornerShape(20.dp)
+
 @Composable
 private fun NumpadKeyButton(
     label: String,
@@ -558,22 +560,21 @@ private fun NumpadKeyButton(
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val reduceMotion = LocalReduceMotion.current
-    val scale by animateFloatAsState(
+    val scaleState = animateFloatAsState(
         targetValue = if (pressed && !reduceMotion) 0.92f else 1f,
         animationSpec = ExpressiveMotion.fastSpatial(),
         label = "KeyPressScale",
-    )
-    val corner by animateDpAsState(
-        targetValue = if (pressed) 14.dp else 24.dp,
-        animationSpec = ExpressiveMotion.fastSpatial(),
-        label = "KeyPressCorner",
     )
 
     Box(
         modifier = modifier
             .height(52.dp)
-            .scale(scale)
-            .clip(RoundedCornerShape(corner))
+            .graphicsLayer {
+                val s = scaleState.value
+                scaleX = s
+                scaleY = s
+            }
+            .clip(NumpadKeyShape)
             .background(
                 if (label == "DEL") MaterialTheme.colorScheme.surfaceContainerHighest
                 else MaterialTheme.colorScheme.surfaceContainer

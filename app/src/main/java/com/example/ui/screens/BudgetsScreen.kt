@@ -29,7 +29,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -99,6 +101,8 @@ fun BudgetsScreen(
     activeSection: BudgetsSection,
     onSelectSection: (BudgetsSection) -> Unit,
     contentPadding: PaddingValues,
+    overviewListState: LazyListState = rememberLazyListState(),
+    categoriesListState: LazyListState = rememberLazyListState(),
     onLimitChange: (categoryId: String, newLimit: Double) -> Unit,
     onNewCategory: () -> Unit,
     onEditCategory: (BudgetCategory) -> Unit,
@@ -181,6 +185,7 @@ fun BudgetsScreen(
             BudgetsSection.OVERVIEW -> MonthlyBudgetOverviewScreen(
                 state = overviewState,
                 contentPadding = contentPadding,
+                listState = overviewListState,
                 onPreviousMonth = onPreviousMonth,
                 onNextMonth = onNextMonth,
                 onJumpToCurrentMonth = onJumpToCurrentMonth,
@@ -192,17 +197,22 @@ fun BudgetsScreen(
             )
 
             BudgetsSection.CATEGORIES -> LazyColumn(
+                state = categoriesListState,
                 modifier = Modifier
                     .fillMaxSize()
                     .testTag("budgets_list"),
                 contentPadding = contentPadding,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                item(key = "budgets_header") {
+                item(key = "budgets_header", contentType = "budgets_header") {
                     sectionSwitcherHeader()
                 }
 
-                items(state.categories, key = { it.id }) { category ->
+                items(
+                    items = state.categories,
+                    key = { it.id },
+                    contentType = { "budget_category_card" },
+                ) { category ->
                     val spent = state.spentForCategoryThisMonth(category.id)
                     BudgetLimitCard(
                         category = category,
@@ -309,22 +319,21 @@ private fun BudgetLimitCard(
     val ratio = if (draftLimit > 0.0) (spent / draftLimit).toFloat().coerceAtLeast(0f) else 0f
     val statusPalette = budgetStatusPalette(ratio)
 
-    val accent by animateColorAsState(
+    val accentState = animateColorAsState(
         targetValue = statusPalette.accent,
         animationSpec = ExpressiveMotion.fastEffects(),
         label = "BudgetColorShift_${category.id}",
     )
-    val animatedProgress by animateFloatAsState(
+    val animatedProgressState = animateFloatAsState(
         targetValue = ratio.coerceIn(0f, 1f),
         animationSpec = ExpressiveMotion.defaultSpatial(),
         label = "BudgetBarSpring_${category.id}",
     )
 
     Surface(
+        onClick = onToggleExpand,
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(28.dp))
-            .clickable(onClick = onToggleExpand)
             .testTag("budget_card_${category.id}"),
         shape = RoundedCornerShape(28.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -368,7 +377,7 @@ private fun BudgetLimitCard(
                             text = if (remaining >= 0.0) "${formatCurrency(remaining, false)} left"
                             else "${formatCurrency(-remaining, false)} over limit",
                             style = MaterialTheme.typography.labelMedium,
-                            color = accent,
+                            color = statusPalette.accent,
                         )
                     }
                 }
@@ -397,8 +406,8 @@ private fun BudgetLimitCard(
             }
 
             WavyProgressIndicator(
-                progress = animatedProgress,
-                color = accent,
+                progressProvider = { animatedProgressState.value },
+                colorProvider = { accentState.value },
                 trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                 modifier = Modifier
                     .fillMaxWidth()

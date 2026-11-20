@@ -108,22 +108,52 @@ class MainActivity : ComponentActivity() {
         enablePixelSmoothDisplay()
     }
 
+    override fun onResume() {
+        super.onResume()
+        enablePixelSmoothDisplay()
+    }
+
+    @Suppress("DEPRECATION")
     private fun enablePixelSmoothDisplay() {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        val currentWindow = window ?: return
+
+        // Android 14+ (API 34+): keep LTPO displays (Pixel Pro, etc.) boosted to peak 120Hz on touch/scroll
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             runCatching {
-                val currentDisplay = window?.decorView?.display ?: display ?: return
-                val currentMode = currentDisplay.mode ?: return
-                val bestMode = currentDisplay.supportedModes
-                    .filter {
-                        it.physicalWidth == currentMode.physicalWidth &&
-                            it.physicalHeight == currentMode.physicalHeight
-                    }
-                    .maxByOrNull { it.refreshRate }
-                if (bestMode != null && bestMode.modeId != currentMode.modeId) {
-                    val attrs = window.attributes
-                    attrs.preferredDisplayModeId = bestMode.modeId
-                    window.attributes = attrs
+                if (!currentWindow.frameRateBoostOnTouchEnabled) {
+                    currentWindow.frameRateBoostOnTouchEnabled = true
                 }
+            }
+        }
+
+        runCatching {
+            val currentDisplay = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                currentWindow.decorView.display ?: display
+            } else {
+                windowManager?.defaultDisplay
+            } ?: return
+
+            val currentMode = currentDisplay.mode ?: return
+            val bestMode = currentDisplay.supportedModes
+                .filter {
+                    it.physicalWidth == currentMode.physicalWidth &&
+                        it.physicalHeight == currentMode.physicalHeight
+                }
+                .maxByOrNull { it.refreshRate }
+                ?: currentMode
+
+            val attrs = currentWindow.attributes
+            var changed = false
+            if (attrs.preferredDisplayModeId != bestMode.modeId) {
+                attrs.preferredDisplayModeId = bestMode.modeId
+                changed = true
+            }
+            if (attrs.preferredRefreshRate != bestMode.refreshRate) {
+                attrs.preferredRefreshRate = bestMode.refreshRate
+                changed = true
+            }
+            if (changed) {
+                currentWindow.attributes = attrs
             }
         }
     }

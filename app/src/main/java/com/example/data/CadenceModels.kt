@@ -25,11 +25,9 @@ import androidx.compose.material.icons.rounded.WaterDrop
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import java.text.SimpleDateFormat
+import java.text.DateFormatSymbols
 import java.util.Calendar
-import java.util.Date
 import java.util.Locale
-import java.util.TimeZone
 
 enum class CadenceTab(val label: String, val icon: ImageVector) {
     Home("Home", Icons.Rounded.SpaceDashboard),
@@ -105,33 +103,13 @@ data class LocalDay(
 
     fun isSameMonth(other: LocalDay): Boolean = year == other.year && month == other.month
 
-    fun monthFullName(): String {
-        val cal = toUtcCalendar()
-        return SimpleDateFormat("MMMM", Locale.getDefault()).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
-        }.format(cal.time)
-    }
+    fun monthFullName(): String = cachedSymbols().months.getOrNull(month - 1).orEmpty()
 
-    fun monthShortName(): String {
-        val cal = toUtcCalendar()
-        return SimpleDateFormat("MMM", Locale.getDefault()).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
-        }.format(cal.time)
-    }
+    fun monthShortName(): String = cachedSymbols().shortMonths.getOrNull(month - 1).orEmpty()
 
-    fun monthYearShort(): String {
-        val cal = toUtcCalendar()
-        return SimpleDateFormat("MMM yyyy", Locale.getDefault()).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
-        }.format(cal.time)
-    }
+    fun monthYearShort(): String = "${monthShortName()} $year"
 
-    fun monthYearFullName(): String {
-        val cal = toUtcCalendar()
-        return SimpleDateFormat("MMMM yyyy", Locale.getDefault()).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
-        }.format(cal.time)
-    }
+    fun monthYearFullName(): String = "${monthFullName()} $year"
 
     fun firstDayOfNextMonth(): LocalDay = if (month == 12) {
         LocalDay(year = year + 1, month = 1, dayOfMonth = 1)
@@ -157,46 +135,60 @@ data class LocalDay(
         return Math.floorMod(toEpochDay() + 3L, 7L).toInt()
     }
 
-    fun dayOfWeekShort(): String {
-        val cal = toUtcCalendar()
-        return SimpleDateFormat("EEE", Locale.getDefault()).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
-        }.format(cal.time)
+    private fun calendarDayOfWeek(): Int {
+        val monFirst = dayOfWeekIndexMonFirst()
+        return if (monFirst == 6) Calendar.SUNDAY else monFirst + 2
     }
 
-    fun formatShort(): String {
-        val cal = toUtcCalendar()
-        return SimpleDateFormat("MMM d", Locale.getDefault()).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
-        }.format(cal.time)
-    }
+    fun dayOfWeekShort(): String = cachedSymbols().shortWeekdays.getOrNull(calendarDayOfWeek()).orEmpty()
 
-    fun formatDayOfWeekShort(): String {
-        val cal = toUtcCalendar()
-        return SimpleDateFormat("EEE, MMM d", Locale.getDefault()).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
-        }.format(cal.time)
-    }
+    private fun dayOfWeekFull(): String = cachedSymbols().weekdays.getOrNull(calendarDayOfWeek()).orEmpty()
 
-    fun formatFullGroupHeader(): String {
-        val cal = toUtcCalendar()
-        return SimpleDateFormat("EEEE, MMM d", Locale.getDefault()).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
-        }.format(cal.time)
-    }
+    fun formatShort(): String = "${monthShortName()} $dayOfMonth"
+
+    fun formatDayOfWeekShort(): String = "${dayOfWeekShort()}, ${monthShortName()} $dayOfMonth"
+
+    fun formatFullGroupHeader(): String = "${dayOfWeekFull()}, ${monthShortName()} $dayOfMonth"
 
     fun formatIsoDate(): String = String.format(Locale.US, "%04d-%02d-%02d", year, month, dayOfMonth)
 
-    fun toUtcMillis(): Long = toUtcCalendar().timeInMillis
-
-    private fun toUtcCalendar(): Calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
-        clear()
-        set(year, month - 1, dayOfMonth, 12, 0, 0)
-    }
+    fun toUtcMillis(): Long = toEpochDay() * MILLIS_PER_DAY + HALF_DAY_MILLIS
 
     override fun compareTo(other: LocalDay): Int = toEpochDay().compareTo(other.toEpochDay())
 
     companion object {
+        private const val MILLIS_PER_DAY = 86_400_000L
+        private const val HALF_DAY_MILLIS = 43_200_000L
+
+        private class CachedDateSymbols(
+            val locale: Locale,
+            val months: Array<String>,
+            val shortMonths: Array<String>,
+            val weekdays: Array<String>,
+            val shortWeekdays: Array<String>,
+        )
+
+        @Volatile
+        private var dateSymbolsCache: CachedDateSymbols? = null
+
+        private fun cachedSymbols(): CachedDateSymbols {
+            val currentLocale = Locale.getDefault()
+            val existing = dateSymbolsCache
+            if (existing != null && existing.locale == currentLocale) {
+                return existing
+            }
+            val raw = DateFormatSymbols.getInstance(currentLocale)
+            val created = CachedDateSymbols(
+                locale = currentLocale,
+                months = raw.months,
+                shortMonths = raw.shortMonths,
+                weekdays = raw.weekdays,
+                shortWeekdays = raw.shortWeekdays,
+            )
+            dateSymbolsCache = created
+            return created
+        }
+
         fun today(): LocalDay {
             val cal = Calendar.getInstance()
             return LocalDay(
@@ -220,16 +212,7 @@ data class LocalDay(
             return LocalDay(year = year, month = m.toInt(), dayOfMonth = d.toInt())
         }
 
-        fun fromUtcMillis(millis: Long): LocalDay {
-            val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
-                time = Date(millis)
-            }
-            return LocalDay(
-                year = cal.get(Calendar.YEAR),
-                month = cal.get(Calendar.MONTH) + 1,
-                dayOfMonth = cal.get(Calendar.DAY_OF_MONTH),
-            )
-        }
+        fun fromUtcMillis(millis: Long): LocalDay = fromEpochDay(Math.floorDiv(millis, MILLIS_PER_DAY))
 
         fun lengthOfMonthFor(year: Int, month: Int): Int = when (month) {
             1, 3, 5, 7, 8, 10, 12 -> 31
@@ -388,28 +371,27 @@ data class CadenceUiState(
     val warningThresholdRatio: Float = 0.80f,
     val compactCards: Boolean = false,
 ) {
-    val cycleStart: LocalDay
-        get() {
-            val resetThisMonth = budgetResetDay.coerceIn(1, today.lengthOfMonth())
-            return if (today.dayOfMonth >= resetThisMonth) {
-                LocalDay(today.year, today.month, resetThisMonth)
-            } else {
-                today.plusMonthsClamped(-1, budgetResetDay)
-            }
+    val cycleStart: LocalDay by lazy(LazyThreadSafetyMode.NONE) {
+        val resetThisMonth = budgetResetDay.coerceIn(1, today.lengthOfMonth())
+        if (today.dayOfMonth >= resetThisMonth) {
+            LocalDay(today.year, today.month, resetThisMonth)
+        } else {
+            today.plusMonthsClamped(-1, budgetResetDay)
         }
+    }
 
-    val nextResetDate: LocalDay
-        get() {
-            val resetThisMonth = budgetResetDay.coerceIn(1, today.lengthOfMonth())
-            return if (today.dayOfMonth >= resetThisMonth) {
-                today.plusMonthsClamped(1, budgetResetDay)
-            } else {
-                LocalDay(today.year, today.month, resetThisMonth)
-            }
+    val nextResetDate: LocalDay by lazy(LazyThreadSafetyMode.NONE) {
+        val resetThisMonth = budgetResetDay.coerceIn(1, today.lengthOfMonth())
+        if (today.dayOfMonth >= resetThisMonth) {
+            today.plusMonthsClamped(1, budgetResetDay)
+        } else {
+            LocalDay(today.year, today.month, resetThisMonth)
         }
+    }
 
-    val cycleEnd: LocalDay
-        get() = nextResetDate.minusDays(1)
+    val cycleEnd: LocalDay by lazy(LazyThreadSafetyMode.NONE) {
+        nextResetDate.minusDays(1)
+    }
 
     val cycleTotalDays: Int
         get() = (nextResetDate.toEpochDay() - cycleStart.toEpochDay()).toInt().coerceAtLeast(1)
@@ -417,25 +399,39 @@ data class CadenceUiState(
     val cycleDayElapsed: Int
         get() = ((today.toEpochDay() - cycleStart.toEpochDay()).toInt() + 1).coerceIn(1, cycleTotalDays)
 
-    val budgetPeriodTitle: String
-        get() = if (budgetResetDay == 1) {
+    val budgetPeriodTitle: String by lazy(LazyThreadSafetyMode.NONE) {
+        if (budgetResetDay == 1) {
             "${today.monthFullName()} Budget"
         } else {
             "${cycleStart.formatShort()} – ${cycleEnd.formatShort()} Budget"
         }
+    }
 
-    val currentMonthTransactions: List<Transaction>
-        get() {
-            val start = cycleStart
-            val next = nextResetDate
-            return transactions.filter { it.date >= start && it.date < next }
+    val currentMonthTransactions: List<Transaction> by lazy(LazyThreadSafetyMode.NONE) {
+        val start = cycleStart
+        val next = nextResetDate
+        transactions.filter { it.date >= start && it.date < next }
+    }
+
+    private val spentByCategoryThisMonth: Map<String, Double> by lazy(LazyThreadSafetyMode.NONE) {
+        val totals = HashMap<String, Double>(categories.size + 4)
+        for (tx in currentMonthTransactions) {
+            totals[tx.categoryId] = (totals[tx.categoryId] ?: 0.0) + tx.amount
         }
+        totals
+    }
 
-    val totalMonthlyBudget: Double
-        get() = categories.sumOf { it.monthlyLimit }
+    private val categoryById: Map<String, BudgetCategory> by lazy(LazyThreadSafetyMode.NONE) {
+        categories.associateBy { it.id }
+    }
 
-    val totalSpentThisMonth: Double
-        get() = currentMonthTransactions.sumOf { it.amount }
+    val totalMonthlyBudget: Double by lazy(LazyThreadSafetyMode.NONE) {
+        categories.sumOf { it.monthlyLimit }
+    }
+
+    val totalSpentThisMonth: Double by lazy(LazyThreadSafetyMode.NONE) {
+        currentMonthTransactions.sumOf { it.amount }
+    }
 
     val remainingBudget: Double
         get() = totalMonthlyBudget - totalSpentThisMonth
@@ -449,34 +445,41 @@ data class CadenceUiState(
     val daysRemaining: Int
         get() = (nextResetDate.toEpochDay() - today.toEpochDay()).toInt().coerceAtLeast(1)
 
-    val activeRecurringItems: List<RecurringItem>
-        get() = recurringItems.filter { it.active }
+    val activeRecurringItems: List<RecurringItem> by lazy(LazyThreadSafetyMode.NONE) {
+        recurringItems.filter { it.active }
+    }
 
-    val recurringBills: List<RecurringItem>
-        get() = recurringItems.filter { it.kind == RecurringKind.RECURRING }
+    val recurringBills: List<RecurringItem> by lazy(LazyThreadSafetyMode.NONE) {
+        recurringItems.filter { it.kind == RecurringKind.RECURRING }
             .sortedWith(compareByDescending<RecurringItem> { it.active }.thenBy { it.nextDueDate })
+    }
 
-    val subscriptions: List<RecurringItem>
-        get() = recurringItems.filter { it.kind == RecurringKind.SUBSCRIPTION }
+    val subscriptions: List<RecurringItem> by lazy(LazyThreadSafetyMode.NONE) {
+        recurringItems.filter { it.kind == RecurringKind.SUBSCRIPTION }
             .sortedWith(compareByDescending<RecurringItem> { it.active }.thenBy { it.nextDueDate })
+    }
 
-    val monthlyRecurringBillsTotal: Double
-        get() = activeRecurringItems.filter { it.kind == RecurringKind.RECURRING }.sumOf { it.monthlyEquivalent }
+    val monthlyRecurringBillsTotal: Double by lazy(LazyThreadSafetyMode.NONE) {
+        activeRecurringItems.filter { it.kind == RecurringKind.RECURRING }.sumOf { it.monthlyEquivalent }
+    }
 
-    val monthlySubscriptionsTotal: Double
-        get() = activeRecurringItems.filter { it.kind == RecurringKind.SUBSCRIPTION }.sumOf { it.monthlyEquivalent }
+    val monthlySubscriptionsTotal: Double by lazy(LazyThreadSafetyMode.NONE) {
+        activeRecurringItems.filter { it.kind == RecurringKind.SUBSCRIPTION }.sumOf { it.monthlyEquivalent }
+    }
 
     val totalMonthlyFixedCommitments: Double
         get() = monthlyRecurringBillsTotal + monthlySubscriptionsTotal
 
     /** Active recurring/subscription charges still due before the current cycle ends. */
-    val upcomingDueThisCycleTotal: Double
-        get() = activeRecurringItems
+    val upcomingDueThisCycleTotal: Double by lazy(LazyThreadSafetyMode.NONE) {
+        activeRecurringItems
             .filter { it.nextDueDate >= today && it.nextDueDate < nextResetDate }
             .sumOf { it.amount }
+    }
 
-    val nextUpcomingBill: RecurringItem?
-        get() = activeRecurringItems.minByOrNull { it.nextDueDate }
+    val nextUpcomingBill: RecurringItem? by lazy(LazyThreadSafetyMode.NONE) {
+        activeRecurringItems.minByOrNull { it.nextDueDate }
+    }
 
     val safeDailySpend: Double
         get() {
@@ -485,7 +488,7 @@ data class CadenceUiState(
         }
 
     fun spentForCategoryThisMonth(categoryId: String): Double =
-        currentMonthTransactions.filter { it.categoryId == categoryId }.sumOf { it.amount }
+        spentByCategoryThisMonth[categoryId] ?: 0.0
 
     fun transactionsForCategory(categoryId: String): List<Transaction> =
         transactions
@@ -497,29 +500,40 @@ data class CadenceUiState(
             (selectedFilterCategoryId == null || tx.categoryId == selectedFilterCategoryId) &&
                 (searchQuery.isBlank() ||
                     tx.merchantOrNote.contains(searchQuery, ignoreCase = true) ||
-                    categories.find { it.id == tx.categoryId }?.name?.contains(searchQuery, ignoreCase = true) == true)
+                    categoryById[tx.categoryId]?.name?.contains(searchQuery, ignoreCase = true) == true)
         }
         .sortedWith(compareByDescending<Transaction> { it.date }.thenByDescending { it.createdAtSeconds })
+
+    private val cachedSixMonthsTrend: List<MonthlyTrendPoint> by lazy(LazyThreadSafetyMode.NONE) {
+        val currentStart = cycleStart
+        val bucketStarts = Array(6) { idx -> currentStart.plusMonthsClamped(idx - 5, budgetResetDay) }
+        val bucketEnds = Array(6) { idx -> currentStart.plusMonthsClamped(idx - 4, budgetResetDay) }
+        val totals = DoubleArray(6)
+        val firstStart = bucketStarts[0]
+        val lastEnd = bucketEnds[5]
+        for (tx in transactions) {
+            if (tx.date < firstStart || tx.date >= lastEnd) continue
+            for (i in 0 until 6) {
+                if (tx.date >= bucketStarts[i] && tx.date < bucketEnds[i]) {
+                    totals[i] += tx.amount
+                    break
+                }
+            }
+        }
+        List(6) { idx ->
+            val start = bucketStarts[idx]
+            MonthlyTrendPoint(
+                year = start.year,
+                month = start.month,
+                shortLabel = start.monthShortName(),
+                totalSpent = totals[idx],
+            )
+        }
+    }
 
     /**
      * Computes monthly spending totals for the last 6 budget cycles ending with the active cycle,
      * aligned with the user's configured [budgetResetDay].
      */
-    fun lastSixMonthsTrend(): List<MonthlyTrendPoint> {
-        val currentStart = cycleStart
-        return (-5..0).map { offset ->
-            val start = currentStart.plusMonthsClamped(offset, budgetResetDay)
-            val endExclusive = currentStart.plusMonthsClamped(offset + 1, budgetResetDay)
-            val total = transactions
-                .asSequence()
-                .filter { it.date >= start && it.date < endExclusive }
-                .sumOf { it.amount }
-            MonthlyTrendPoint(
-                year = start.year,
-                month = start.month,
-                shortLabel = start.monthShortName(),
-                totalSpent = total,
-            )
-        }
-    }
+    fun lastSixMonthsTrend(): List<MonthlyTrendPoint> = cachedSixMonthsTrend
 }

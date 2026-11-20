@@ -22,9 +22,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -47,6 +49,7 @@ import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -63,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.BudgetCategory
 import com.example.data.CadenceUiState
+import com.example.data.LocalDay
 import com.example.data.RecurringItem
 import com.example.data.RecurringKind
 import com.example.data.Transaction
@@ -76,6 +80,18 @@ enum class ActivitySection {
     BILLS_AND_SUBS,
 }
 
+@Immutable
+private data class TransactionDayGroup(
+    val date: LocalDay,
+    val total: Double,
+    val items: List<Transaction>,
+)
+
+private val SingleSegmentedShape = RoundedCornerShape(24.dp)
+private val TopSegmentedShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 6.dp, bottomEnd = 6.dp)
+private val BottomSegmentedShape = RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
+private val MiddleSegmentedShape = RoundedCornerShape(6.dp)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TransactionsScreen(
@@ -83,6 +99,8 @@ fun TransactionsScreen(
     activeSection: ActivitySection,
     onSelectSection: (ActivitySection) -> Unit,
     contentPadding: PaddingValues,
+    transactionsListState: LazyListState = rememberLazyListState(),
+    recurringListState: LazyListState = rememberLazyListState(),
     onSearchChange: (String) -> Unit,
     onFilterCategory: (String?) -> Unit,
     onEdit: (Transaction) -> Unit,
@@ -166,6 +184,7 @@ fun TransactionsScreen(
                 RecurringAndSubscriptionsContent(
                     state = state,
                     contentPadding = contentPadding,
+                    listState = recurringListState,
                     headerContent = sectionHeader,
                     onAddRecurring = onAddRecurring,
                     onEditRecurring = onEditRecurring,
@@ -178,6 +197,7 @@ fun TransactionsScreen(
                 TransactionsFeedContent(
                     state = state,
                     contentPadding = contentPadding,
+                    listState = transactionsListState,
                     headerContent = sectionHeader,
                     onSearchChange = onSearchChange,
                     onFilterCategory = onFilterCategory,
@@ -194,6 +214,7 @@ fun TransactionsScreen(
 private fun TransactionsFeedContent(
     state: CadenceUiState,
     contentPadding: PaddingValues,
+    listState: LazyListState,
     headerContent: @Composable () -> Unit,
     onSearchChange: (String) -> Unit,
     onFilterCategory: (String?) -> Unit,
@@ -202,20 +223,30 @@ private fun TransactionsFeedContent(
 ) {
     val performHaptic = rememberPixelHaptics()
     val today = state.today
+    val yesterday = remember(today) { today.minusDays(1) }
     val filtered = remember(state.transactions, state.searchQuery, state.selectedFilterCategoryId, state.categories) {
         state.filteredTransactions()
     }
-    val grouped = remember(filtered) { filtered.groupBy { it.date } }
+    val dayGroups = remember(filtered) {
+        filtered.groupBy { it.date }.map { (date, list) ->
+            TransactionDayGroup(
+                date = date,
+                total = list.sumOf { it.amount },
+                items = list,
+            )
+        }
+    }
     val categoryMap = remember(state.categories) { state.categories.associateBy { it.id } }
 
     LazyColumn(
+        state = listState,
         modifier = Modifier
             .fillMaxSize()
             .testTag("transactions_list"),
         contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        item(key = "activity_controls") {
+        item(key = "activity_controls", contentType = "activity_controls") {
             Column(
                 modifier = Modifier.padding(bottom = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -252,7 +283,11 @@ private fun TransactionsFeedContent(
                     ),
                 )
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(state.categories, key = { it.id }) { cat ->
+                    items(
+                        items = state.categories,
+                        key = { it.id },
+                        contentType = { "filter_chip" },
+                    ) { cat ->
                         FilterChip(
                             selected = state.selectedFilterCategoryId == cat.id,
                             onClick = {
@@ -275,8 +310,8 @@ private fun TransactionsFeedContent(
             }
         }
 
-        if (grouped.isEmpty()) {
-            item(key = "empty_activity") {
+        if (dayGroups.isEmpty()) {
+            item(key = "empty_activity", contentType = "empty_activity") {
                 val hasActiveFilters = state.searchQuery.isNotBlank() || state.selectedFilterCategoryId != null
                 Surface(
                     shape = RoundedCornerShape(32.dp),
@@ -323,11 +358,16 @@ private fun TransactionsFeedContent(
                 }
             }
         } else {
-            grouped.forEach { (date, itemsForDate) ->
-                item(key = "header-${date.toEpochDay()}") {
+            dayGroups.forEach { group ->
+                val date = group.date
+                val itemsForDate = group.items
+                item(
+                    key = "header-${date.toEpochDay()}",
+                    contentType = "date_header",
+                ) {
                     val dateTitle = when (date) {
                         today -> stringResource(R.string.entry_today)
-                        today.minusDays(1) -> "Yesterday"
+                        yesterday -> "Yesterday"
                         else -> date.formatFullGroupHeader()
                     }
                     Row(
@@ -342,14 +382,18 @@ private fun TransactionsFeedContent(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(
-                            text = "-${formatCurrency(itemsForDate.sumOf { it.amount }, showCents = true)}",
+                            text = "-${formatCurrency(group.total, showCents = true)}",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
 
-                itemsIndexed(itemsForDate, key = { _, tx -> tx.id }) { index, tx ->
+                itemsIndexed(
+                    items = itemsForDate,
+                    key = { _, tx -> tx.id },
+                    contentType = { _, _ -> "transaction_row" },
+                ) { index, tx ->
                     val shape = segmentedItemShape(index, itemsForDate.size)
                     val category = categoryMap[tx.categoryId]
 
@@ -463,10 +507,10 @@ private fun ActivityModePill(
 }
 
 private fun segmentedItemShape(index: Int, count: Int): RoundedCornerShape = when {
-    count == 1 -> RoundedCornerShape(24.dp)
-    index == 0 -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 6.dp, bottomEnd = 6.dp)
-    index == count - 1 -> RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
-    else -> RoundedCornerShape(6.dp)
+    count == 1 -> SingleSegmentedShape
+    index == 0 -> TopSegmentedShape
+    index == count - 1 -> BottomSegmentedShape
+    else -> MiddleSegmentedShape
 }
 
 @Composable
@@ -478,10 +522,8 @@ private fun TransactionSegmentedRow(
     onClick: () -> Unit,
 ) {
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .clickable(onClick = onClick),
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
