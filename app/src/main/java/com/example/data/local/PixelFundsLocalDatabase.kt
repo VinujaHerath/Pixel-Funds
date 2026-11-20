@@ -17,15 +17,18 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.data.BillingCadence
 import com.example.data.BudgetCategory
 import com.example.data.BudgetRepository
+import com.example.data.CategoryColorPalette
 import com.example.data.CategoryIconCatalog
 import com.example.data.LocalDay
 import com.example.data.RecurringItem
 import com.example.data.RecurringKind
 import com.example.data.StarterBudgetData
 import com.example.data.Transaction
+import com.example.data.UserPreferences
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.util.Locale
 import java.util.UUID
 
 @Entity(tableName = "local_workspace")
@@ -102,6 +105,97 @@ data class LocalRecurringEntity(
         active = active,
         sample = sample,
     )
+}
+
+@Entity(tableName = "local_monthly_budget_limits")
+data class MonthlyBudgetLimitEntity(
+    @PrimaryKey val periodKey: String,
+    val limitAmount: Double,
+    val updatedAtMillis: Long,
+)
+
+data class MonthlySpendingSummaryRow(
+    val totalSpent: Double,
+    val transactionCount: Int,
+    val largestExpense: Double,
+)
+
+data class CategoryMonthlySpendRow(
+    val categoryId: String,
+    val categoryName: String,
+    val iconKey: String,
+    val colorHex: Long,
+    val categoryLimit: Double,
+    val spentAmount: Double,
+    val transactionCount: Int,
+)
+
+@Dao
+interface MonthlyBudgetOverviewDao {
+    @Query(
+        """
+        SELECT
+            COALESCE(SUM(amount), 0.0) AS totalSpent,
+            COUNT(*) AS transactionCount,
+            COALESCE(MAX(amount), 0.0) AS largestExpense
+        FROM local_transactions
+        WHERE dateEpochDay >= :startEpochDay AND dateEpochDay <= :endEpochDay
+        """
+    )
+    fun observeMonthlySpendingSummary(
+        startEpochDay: Long,
+        endEpochDay: Long,
+    ): Flow<MonthlySpendingSummaryRow>
+
+    @Query(
+        """
+        SELECT
+            c.id AS categoryId,
+            c.name AS categoryName,
+            c.iconKey AS iconKey,
+            c.colorHex AS colorHex,
+            c.monthlyLimit AS categoryLimit,
+            COALESCE(SUM(t.amount), 0.0) AS spentAmount,
+            COUNT(t.id) AS transactionCount
+        FROM local_categories c
+        LEFT JOIN local_transactions t
+            ON c.id = t.categoryId
+            AND t.dateEpochDay >= :startEpochDay
+            AND t.dateEpochDay <= :endEpochDay
+        GROUP BY c.id
+        ORDER BY spentAmount DESC, c.sortOrder ASC, c.name ASC
+        """
+    )
+    fun observeCategoryMonthlySpending(
+        startEpochDay: Long,
+        endEpochDay: Long,
+    ): Flow<List<CategoryMonthlySpendRow>>
+
+    @Query("SELECT COALESCE(SUM(monthlyLimit), 0.0) FROM local_categories")
+    fun observeTotalCategoryLimits(): Flow<Double>
+
+    @Query("SELECT * FROM local_monthly_budget_limits WHERE periodKey = :periodKey LIMIT 1")
+    fun observeMonthlyBudgetLimit(periodKey: String): Flow<MonthlyBudgetLimitEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertMonthlyBudgetLimit(entity: MonthlyBudgetLimitEntity)
+
+    @Query("DELETE FROM local_monthly_budget_limits WHERE periodKey = :periodKey")
+    suspend fun clearMonthlyBudgetLimit(periodKey: String)
+
+    @Query(
+        """
+        SELECT * FROM local_transactions
+        WHERE dateEpochDay >= :startEpochDay AND dateEpochDay <= :endEpochDay
+        ORDER BY dateEpochDay DESC, createdAtSeconds DESC
+        LIMIT :limit
+        """
+    )
+    fun observeRecentTransactionsForPeriod(
+        startEpochDay: Long,
+        endEpochDay: Long,
+        limit: Int = 5,
+    ): Flow<List<LocalTransactionEntity>>
 }
 
 @Dao
@@ -225,6 +319,21 @@ interface PixelFundsDao {
     @Query("DELETE FROM local_recurring_items WHERE sample = 1")
     suspend fun deleteSampleRecurringItems()
 
+    @Query("DELETE FROM local_categories")
+    suspend fun deleteAllCategories()
+
+    @Query("DELETE FROM local_recurring_items")
+    suspend fun deleteAllRecurringItems()
+
+    @Query("SELECT * FROM local_monthly_budget_limits ORDER BY periodKey ASC")
+    suspend fun getAllMonthlyBudgetLimits(): List<MonthlyBudgetLimitEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMonthlyBudgetLimits(limits: List<MonthlyBudgetLimitEntity>)
+
+    @Query("DELETE FROM local_monthly_budget_limits")
+    suspend fun deleteAllMonthlyBudgetLimits()
+
     @RoomTransaction
     suspend fun deleteCategoryAndReassign(categoryId: String, fallbackCategoryId: String) {
         reassignTransactions(categoryId, fallbackCategoryId)
@@ -241,6 +350,38 @@ interface PixelFundsDao {
         insertTransaction(transaction)
         advanceRecurringDueDate(recurringId, nextDueEpochDay)
     }
+
+    @RoomTransaction
+    suspend fun replaceWorkspaceFromBackup(
+        categories: List<LocalCategoryEntity>,
+        transactions: List<LocalTransactionEntity>,
+        recurringItems: List<LocalRecurringEntity>,
+        monthlyBudgetLimits: List<MonthlyBudgetLimitEntity>,
+        hasSampleData: Boolean,
+    ) {
+        deleteAllTransactions()
+        deleteAllRecurringItems()
+        deleteAllMonthlyBudgetLimits()
+        deleteAllCategories()
+        if (categories.isNotEmpty()) insertCategories(categories)
+        if (transactions.isNotEmpty()) insertTransactions(transactions)
+        if (recurringItems.isNotEmpty()) insertRecurringItems(recurringItems)
+        if (monthlyBudgetLimits.isNotEmpty()) insertMonthlyBudgetLimits(monthlyBudgetLimits)
+        upsertWorkspace(LocalWorkspaceEntity(id = 1, seeded = true, hasSampleData = hasSampleData))
+    }
+
+    @RoomTransaction
+    suspend fun importTransactionsAtomic(
+        newCategories: List<LocalCategoryEntity>,
+        transactions: List<LocalTransactionEntity>,
+        replaceExisting: Boolean,
+    ) {
+        if (newCategories.isNotEmpty()) insertCategories(newCategories)
+        if (replaceExisting) deleteAllTransactions()
+        if (transactions.isNotEmpty()) insertTransactions(transactions)
+        val hasSample = getTransactions().any { it.sample } || getRecurringItems().any { it.sample }
+        upsertWorkspace(LocalWorkspaceEntity(id = 1, seeded = true, hasSampleData = hasSample))
+    }
 }
 
 @Database(
@@ -249,12 +390,14 @@ interface PixelFundsDao {
         LocalCategoryEntity::class,
         LocalTransactionEntity::class,
         LocalRecurringEntity::class,
+        MonthlyBudgetLimitEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class PixelFundsDatabase : RoomDatabase() {
     abstract fun dao(): PixelFundsDao
+    abstract fun monthlyBudgetOverviewDao(): MonthlyBudgetOverviewDao
 
     companion object {
         @Volatile
@@ -281,6 +424,21 @@ abstract class PixelFundsDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `local_monthly_budget_limits` (
+                        `periodKey` TEXT NOT NULL,
+                        `limitAmount` REAL NOT NULL,
+                        `updatedAtMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`periodKey`)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getInstance(context: Context): PixelFundsDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -288,19 +446,12 @@ abstract class PixelFundsDatabase : RoomDatabase() {
                     PixelFundsDatabase::class.java,
                     "pixel_funds_local.db",
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { INSTANCE = it }
             }
     }
 }
-
-data class LocalMigrationSnapshot(
-    val categories: List<BudgetCategory>,
-    val transactions: List<Transaction>,
-    val recurringItems: List<RecurringItem>,
-    val hasSampleData: Boolean,
-)
 
 class LocalBudgetRepository(
     private val dao: PixelFundsDao,
@@ -308,18 +459,127 @@ class LocalBudgetRepository(
 
     constructor(context: Context) : this(PixelFundsDatabase.getInstance(context).dao())
 
-    suspend fun readSnapshotForCloudMigration(): LocalMigrationSnapshot? {
-        val workspace = dao.getWorkspace() ?: return null
-        val categories = dao.getCategories().map { it.toDomain() }
-        if (categories.isEmpty()) return null
-        val transactions = dao.getTransactions().map { it.toDomain() }
-        val recurring = dao.getRecurringItems().map { it.toDomain() }
-        return LocalMigrationSnapshot(
-            categories = categories,
-            transactions = transactions,
-            recurringItems = recurring,
-            hasSampleData = workspace.hasSampleData || transactions.any { it.sample } || recurring.any { it.sample },
+    override suspend fun exportFullBackup(preferences: UserPreferences): Result<PixelFundsBackupData> = try {
+        val categories = dao.getCategories()
+        val transactions = dao.getTransactions()
+        val recurring = dao.getRecurringItems()
+        val monthlyLimits = dao.getAllMonthlyBudgetLimits()
+        Result.success(
+            PixelFundsBackupData(
+                schemaVersion = PixelFundsBackupData.CURRENT_SCHEMA_VERSION,
+                exportedAtMillis = System.currentTimeMillis(),
+                preferences = preferences,
+                categories = categories,
+                transactions = transactions,
+                recurringItems = recurring,
+                monthlyBudgetLimits = monthlyLimits,
+            )
         )
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
+    override suspend fun restoreFullBackup(backup: PixelFundsBackupData): Result<Unit> = runSafe {
+        val categoriesToSave = if (backup.categories.isNotEmpty()) {
+            backup.categories
+        } else {
+            val existing = dao.getCategories()
+            if (existing.isNotEmpty()) {
+                existing
+            } else {
+                StarterBudgetData.defaultCategories().mapIndexed { index, seed ->
+                    LocalCategoryEntity(
+                        id = seed.id,
+                        name = seed.name,
+                        iconKey = seed.iconKey,
+                        colorHex = seed.colorHex,
+                        monthlyLimit = seed.monthlyLimit,
+                        sortOrder = index.toLong(),
+                        sample = false,
+                    )
+                }
+            }
+        }
+        val validCatIds = categoriesToSave.map { it.id }.toSet()
+        val fallbackCatId = categoriesToSave.first().id
+
+        val sanitizedTxs = backup.transactions.map { tx ->
+            if (tx.categoryId in validCatIds) tx else tx.copy(categoryId = fallbackCatId)
+        }
+        val sanitizedRecurring = backup.recurringItems.map { rec ->
+            if (rec.categoryId in validCatIds) rec else rec.copy(categoryId = fallbackCatId)
+        }
+        val hasSample = sanitizedTxs.any { it.sample } || sanitizedRecurring.any { it.sample }
+
+        dao.replaceWorkspaceFromBackup(
+            categories = categoriesToSave,
+            transactions = sanitizedTxs,
+            recurringItems = sanitizedRecurring,
+            monthlyBudgetLimits = backup.monthlyBudgetLimits,
+            hasSampleData = hasSample,
+        )
+    }
+
+    override suspend fun importCsvTransactions(
+        rows: List<ImportedCsvRow>,
+        replaceExisting: Boolean,
+    ): Result<Int> = try {
+        require(rows.isNotEmpty()) { "No transactions to import." }
+        val existingCategories = dao.getCategories()
+        val categoryIdByLowerName = LinkedHashMap<String, String>()
+        existingCategories.forEach { cat ->
+            categoryIdByLowerName[cat.name.trim().lowercase(Locale.ROOT)] = cat.id
+        }
+
+        val newCategories = mutableListOf<LocalCategoryEntity>()
+        var nextSortOrder = (existingCategories.maxOfOrNull { it.sortOrder } ?: -1L) + 1L
+
+        val nowSec = System.currentTimeMillis() / 1000L
+        val entities = rows.mapIndexed { index, row ->
+            val catKey = row.categoryName.trim().lowercase(Locale.ROOT)
+            val categoryId = categoryIdByLowerName.getOrPut(catKey) {
+                val createdId = "cat_${UUID.randomUUID().toString().replace("-", "").take(12)}"
+                val colorHex = CategoryColorPalette.swatches[(nextSortOrder.toInt()) % CategoryColorPalette.swatches.size]
+                val iconKey = CategoryIconCatalog.options.firstOrNull { opt ->
+                    catKey.contains(opt.key) || catKey.contains(opt.label.lowercase(Locale.ROOT))
+                }?.key ?: "shopping"
+                newCategories.add(
+                    LocalCategoryEntity(
+                        id = createdId,
+                        name = row.categoryName.trim().take(40).ifBlank { "General" },
+                        iconKey = iconKey,
+                        colorHex = colorHex,
+                        monthlyLimit = 300.0,
+                        sortOrder = nextSortOrder++,
+                        sample = false,
+                    )
+                )
+                createdId
+            }
+
+            LocalTransactionEntity(
+                id = "tx_${UUID.randomUUID().toString().replace("-", "").take(12)}",
+                categoryId = categoryId,
+                amount = row.amount,
+                merchantOrNote = row.merchantOrNote.trim().take(120).ifBlank { "Imported expense" },
+                dateEpochDay = row.date.toEpochDay(),
+                sample = false,
+                createdAtSeconds = nowSec - index,
+            )
+        }
+
+        dao.importTransactionsAtomic(
+            newCategories = newCategories,
+            transactions = entities,
+            replaceExisting = replaceExisting,
+        )
+        Result.success(entities.size)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Result.failure(e)
     }
 
     override fun observeHasSampleData(): Flow<Boolean> =

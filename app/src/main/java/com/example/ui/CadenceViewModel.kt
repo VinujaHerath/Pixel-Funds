@@ -15,9 +15,14 @@ import com.example.data.RecurringKind
 import com.example.data.Transaction
 import com.example.data.UserPreferences
 import com.example.data.WorkspaceLoadState
-import com.google.firebase.firestore.FirebaseFirestoreException
+import com.example.data.local.ImportedCsvRow
+import com.example.data.local.LocalBackupCodec
+import com.example.data.local.ParsedImportPayload
+import com.example.data.local.PixelFundsBackupData
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -108,15 +113,11 @@ class CadenceViewModel(
                     recurringItems = recurringItems,
                 ) as DataWorkspaceState
             }.catch { error ->
-                val firestoreError = generateSequence(error) { it.cause }
-                    .filterIsInstance<FirebaseFirestoreException>()
-                    .firstOrNull()
-                if (firestoreError == null && error is CancellationException) throw error
-                val rootError = firestoreError ?: error
-                Log.w(TAG, "Error observing budget data", rootError)
+                if (error is CancellationException) throw error
+                Log.w(TAG, "Error observing local budget data", error)
                 emit(
                     DataWorkspaceState.Error(
-                        rootError.localizedMessage ?: "Unable to load your budget data right now."
+                        error.localizedMessage ?: "Unable to load your local budget data right now."
                     )
                 )
             }
@@ -724,6 +725,57 @@ class CadenceViewModel(
                 sb.appendLine("${tx.date.formatIsoDate()},\"$catName\",\"$note\",$amt,$currencyCode")
             }
         return sb.toString()
+    }
+
+    suspend fun buildFullBackupJson(): Result<String> = withContext(Dispatchers.IO) {
+        repository.exportFullBackup(userPreferences.value).map { snapshot ->
+            LocalBackupCodec.encodeBackupJson(snapshot)
+        }
+    }
+
+    suspend fun parseImportText(rawText: String): Result<ParsedImportPayload> =
+        withContext(Dispatchers.Default) {
+            LocalBackupCodec.parseImportPayload(rawText)
+        }
+
+    fun restoreFullBackup(backup: PixelFundsBackupData) {
+        viewModelScope.launch {
+            localControls.update { it.copy(isMutating = true) }
+            val result = repository.restoreFullBackup(backup)
+            if (result.isSuccess) {
+                backup.preferences?.let { prefs ->
+                    runCatching { preferencesRepository.restorePreferences(prefs) }
+                }
+            }
+            localControls.update { it.copy(isMutating = false) }
+            result.onSuccess {
+                _events.emit(
+                    CadenceEvent.ShowMessage(
+                        "Restored ${backup.categories.size} categories, ${backup.transactions.size} transactions & ${backup.recurringItems.size} schedules"
+                    )
+                )
+            }.onFailure { err ->
+                _events.emit(
+                    CadenceEvent.ShowMessage(err.localizedMessage ?: "Could not restore backup")
+                )
+            }
+        }
+    }
+
+    fun importCsvTransactions(rows: List<ImportedCsvRow>, replaceExisting: Boolean) {
+        viewModelScope.launch {
+            localControls.update { it.copy(isMutating = true) }
+            val result = repository.importCsvTransactions(rows, replaceExisting)
+            localControls.update { it.copy(isMutating = false) }
+            result.onSuccess { count ->
+                val mode = if (replaceExisting) "Replaced with" else "Imported"
+                _events.emit(CadenceEvent.ShowMessage("$mode $count transactions"))
+            }.onFailure { err ->
+                _events.emit(
+                    CadenceEvent.ShowMessage(err.localizedMessage ?: "Could not import CSV transactions")
+                )
+            }
+        }
     }
 
     fun showToastMessage(message: String) {

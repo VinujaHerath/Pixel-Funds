@@ -1,6 +1,5 @@
 package com.example.data
 
-import androidx.annotation.Keep
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoGraph
 import androidx.compose.material.icons.rounded.CardGiftcard
@@ -26,10 +25,6 @@ import androidx.compose.material.icons.rounded.WaterDrop
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import com.google.firebase.Timestamp
-import com.google.firebase.firestore.DocumentId
-import com.google.firebase.firestore.IgnoreExtraProperties
-import com.google.firebase.firestore.ServerTimestamp
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -308,99 +303,6 @@ object CategoryColorPalette {
         0xFFC94F6DL, // Berry Rose
         0xFF5C7AEAL, // Periwinkle
         0xFF4F772DL, // Olive Moss
-    )
-}
-
-// --- Firestore Serialized Models ---
-
-@Keep
-@IgnoreExtraProperties
-data class UserProfileDoc(
-    @DocumentId val id: String = "",
-    val userId: String = "",
-    val seeded: Boolean = false,
-    val hasSampleData: Boolean = false,
-    @ServerTimestamp val createdAt: Timestamp? = null,
-    @ServerTimestamp val updatedAt: Timestamp? = null,
-)
-
-@Keep
-@IgnoreExtraProperties
-data class BudgetCategoryDoc(
-    @DocumentId val id: String = "",
-    val userId: String = "",
-    val name: String = "",
-    val iconKey: String = "shopping",
-    val colorHex: Long = 0xFF3D8B68L,
-    val monthlyLimit: Double = 100.0,
-    val sortOrder: Long = 0L,
-    val sample: Boolean = false,
-    @ServerTimestamp val createdAt: Timestamp? = null,
-    @ServerTimestamp val updatedAt: Timestamp? = null,
-) {
-    fun toDomain(): BudgetCategory = BudgetCategory(
-        id = id,
-        name = name,
-        iconKey = iconKey,
-        icon = CategoryIconCatalog.iconFor(iconKey),
-        colorHex = colorHex,
-        accentColor = Color(colorHex),
-        monthlyLimit = monthlyLimit,
-        sortOrder = sortOrder,
-        sample = sample,
-    )
-}
-
-@Keep
-@IgnoreExtraProperties
-data class TransactionDoc(
-    @DocumentId val id: String = "",
-    val userId: String = "",
-    val categoryId: String = "",
-    val amount: Double = 0.0,
-    val merchantOrNote: String = "",
-    val dateEpochDay: Long = 0L,
-    val sample: Boolean = false,
-    @ServerTimestamp val createdAt: Timestamp? = null,
-    @ServerTimestamp val updatedAt: Timestamp? = null,
-) {
-    fun toDomain(): Transaction = Transaction(
-        id = id,
-        categoryId = categoryId,
-        amount = amount,
-        merchantOrNote = merchantOrNote,
-        date = LocalDay.fromEpochDay(dateEpochDay),
-        sample = sample,
-        createdAtSeconds = createdAt?.seconds ?: 0L,
-    )
-}
-
-@Keep
-@IgnoreExtraProperties
-data class RecurringItemDoc(
-    @DocumentId val id: String = "",
-    val userId: String = "",
-    val categoryId: String = "",
-    val name: String = "",
-    val amount: Double = 0.0,
-    val kind: String = "recurring",
-    val cadence: String = "monthly",
-    val nextDueEpochDay: Long = 0L,
-    val active: Boolean = true,
-    val sample: Boolean = false,
-    @ServerTimestamp val createdAt: Timestamp? = null,
-    @ServerTimestamp val updatedAt: Timestamp? = null,
-) {
-    fun toDomain(): RecurringItem = RecurringItem(
-        id = id,
-        categoryId = categoryId,
-        name = name,
-        amount = amount,
-        kind = RecurringKind.fromKey(kind),
-        cadence = BillingCadence.fromKey(cadence),
-        nextDueDate = LocalDay.fromEpochDay(nextDueEpochDay),
-        active = active,
-        sample = sample,
     )
 }
 

@@ -69,8 +69,6 @@ import com.example.ui.theme.budgetStatusPalette
 @Composable
 fun DashboardScreen(
     state: CadenceUiState,
-    isCloudSignedIn: Boolean,
-    userInitial: String?,
     contentPadding: PaddingValues,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
@@ -234,27 +232,17 @@ fun DashboardScreen(
                             onOpenAccount()
                         },
                         shape = CircleShape,
-                        color = if (isCloudSignedIn) MaterialTheme.colorScheme.primaryContainer
-                        else MaterialTheme.colorScheme.secondaryContainer,
+                        color = MaterialTheme.colorScheme.secondaryContainer,
                         modifier = Modifier
                             .size(48.dp)
                             .testTag("account_settings_button"),
                     ) {
                         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                            if (isCloudSignedIn && !userInitial.isNullOrBlank()) {
-                                Text(
-                                    text = userInitial,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Rounded.Settings,
-                                    contentDescription = stringResource(R.string.cd_account),
-                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Rounded.Settings,
+                                contentDescription = stringResource(R.string.cd_account),
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
                         }
                     }
                 }

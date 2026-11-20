@@ -320,4 +320,20 @@ class AppPreferencesRepository(private val context: Context) {
     suspend fun setCompactCards(enabled: Boolean) {
         context.pixelFundsPrefsDataStore.edit { it[Keys.COMPACT_CARDS] = enabled }
     }
+
+    suspend fun restorePreferences(prefs: UserPreferences) {
+        val normalizedCurrency = WorldCurrencyCatalog.findByCode(prefs.currencyCode).code
+        context.pixelFundsPrefsDataStore.edit { store ->
+            store[Keys.BUDGET_RESET_DAY] = prefs.budgetResetDay.coerceIn(1, 31)
+            store[Keys.CURRENCY_CODE] = normalizedCurrency
+            store[Keys.THEME_MODE] = prefs.themeMode.storageKey
+            store[Keys.DYNAMIC_COLOR_MANUAL] = prefs.dynamicColorInManualTheme
+            store[Keys.SHOW_DECIMALS] = prefs.showDecimals
+            store[Keys.HAPTICS_ENABLED] = prefs.hapticsEnabled
+            store[Keys.REDUCE_MOTION] = prefs.reduceMotion
+            store[Keys.WARNING_THRESHOLD] = prefs.warningThresholdPercent.coerceIn(55, 95)
+            store[Keys.INCLUDE_FIXED_BILLS_SAFE] = prefs.includeFixedBillsInSafeDaily
+            store[Keys.COMPACT_CARDS] = prefs.compactCards
+        }
+    }
 }

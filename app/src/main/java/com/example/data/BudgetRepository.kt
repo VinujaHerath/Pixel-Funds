@@ -1,10 +1,12 @@
 package com.example.data
 
+import com.example.data.local.ImportedCsvRow
+import com.example.data.local.PixelFundsBackupData
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Common abstraction for both on-device Room storage (guest/local mode)
- * and authenticated Cloud Firestore sync.
+ * Local-first Room storage contract for Pixel Funds budgets, transactions,
+ * recurring schedules, monthly caps, and backup export/import.
  */
 interface BudgetRepository {
     fun observeHasSampleData(): Flow<Boolean>
@@ -16,6 +18,13 @@ interface BudgetRepository {
     suspend fun clearSampleData(): Result<Unit>
     suspend fun restoreSampleData(): Result<Unit>
     suspend fun clearAllTransactions(): Result<Unit>
+
+    suspend fun exportFullBackup(preferences: UserPreferences): Result<PixelFundsBackupData>
+    suspend fun restoreFullBackup(backup: PixelFundsBackupData): Result<Unit>
+    suspend fun importCsvTransactions(
+        rows: List<ImportedCsvRow>,
+        replaceExisting: Boolean,
+    ): Result<Int>
 
     suspend fun addTransaction(
         categoryId: String,

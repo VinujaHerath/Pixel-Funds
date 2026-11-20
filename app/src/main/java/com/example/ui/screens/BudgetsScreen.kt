@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -8,6 +9,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -77,6 +79,7 @@ import com.example.data.BudgetCategory
 import com.example.data.CadenceUiState
 import com.example.data.CategoryColorPalette
 import com.example.data.CategoryIconCatalog
+import com.example.ui.MonthlyBudgetOverviewUiState
 import com.example.ui.components.LocalAppCurrency
 import com.example.ui.components.WavyProgressIndicator
 import com.example.ui.components.formatCurrency
@@ -84,75 +87,208 @@ import com.example.ui.theme.ExpressiveMotion
 import com.example.ui.theme.budgetStatusPalette
 import kotlin.math.roundToInt
 
+enum class BudgetsSection {
+    OVERVIEW,
+    CATEGORIES,
+}
+
 @Composable
 fun BudgetsScreen(
     state: CadenceUiState,
+    overviewState: MonthlyBudgetOverviewUiState,
+    activeSection: BudgetsSection,
+    onSelectSection: (BudgetsSection) -> Unit,
     contentPadding: PaddingValues,
     onLimitChange: (categoryId: String, newLimit: Double) -> Unit,
     onNewCategory: () -> Unit,
     onEditCategory: (BudgetCategory) -> Unit,
+    onPreviousMonth: () -> Unit,
+    onNextMonth: () -> Unit,
+    onJumpToCurrentMonth: () -> Unit,
+    onSetMonthlyLimit: (Double) -> Unit,
+    onResetMonthlyLimitToCategories: () -> Unit,
+    onLogExpense: () -> Unit,
 ) {
     val haptics = LocalHapticFeedback.current
     var expandedCategoryId by remember { mutableStateOf<String?>(null) }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .testTag("budgets_list"),
-        contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item(key = "budgets_header") {
+    val sectionSwitcherHeader: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = stringResource(R.string.budgets_title),
+                        text = if (activeSection == BudgetsSection.OVERVIEW) {
+                            stringResource(R.string.overview_title)
+                        } else {
+                            stringResource(R.string.budgets_title)
+                        },
                         style = MaterialTheme.typography.headlineMedium,
                     )
                     Text(
-                        text = stringResource(R.string.budgets_subtitle),
+                        text = if (activeSection == BudgetsSection.OVERVIEW) {
+                            stringResource(R.string.overview_category_breakdown_subtitle)
+                        } else {
+                            stringResource(R.string.budgets_subtitle)
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Spacer(Modifier.width(12.dp))
-                FilledTonalButton(
-                    onClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onNewCategory()
-                    },
-                    shape = CircleShape,
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                    modifier = Modifier.testTag("new_category_button"),
-                ) {
-                    Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = stringResource(R.string.budgets_new_category),
-                        style = MaterialTheme.typography.labelLarge,
+                if (activeSection == BudgetsSection.CATEGORIES) {
+                    Spacer(Modifier.width(12.dp))
+                    FilledTonalButton(
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onNewCategory()
+                        },
+                        shape = CircleShape,
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                        modifier = Modifier.testTag("new_category_button"),
+                    ) {
+                        Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.budgets_new_category),
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                    }
+                }
+            }
+
+            BudgetsSectionSegmentedPill(
+                activeSection = activeSection,
+                onSelect = { section ->
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onSelectSection(section)
+                },
+            )
+        }
+    }
+
+    AnimatedContent(
+        targetState = activeSection,
+        transitionSpec = {
+            fadeIn(ExpressiveMotion.fastEffects()) togetherWith fadeOut(ExpressiveMotion.fastEffects())
+        },
+        label = "BudgetsSectionSwitch",
+        modifier = Modifier.fillMaxSize(),
+    ) { section ->
+        when (section) {
+            BudgetsSection.OVERVIEW -> MonthlyBudgetOverviewScreen(
+                state = overviewState,
+                contentPadding = contentPadding,
+                onPreviousMonth = onPreviousMonth,
+                onNextMonth = onNextMonth,
+                onJumpToCurrentMonth = onJumpToCurrentMonth,
+                onSetMonthlyLimit = onSetMonthlyLimit,
+                onResetToCategorySum = onResetMonthlyLimitToCategories,
+                onLogExpense = onLogExpense,
+                onOpenCategoryLimits = { onSelectSection(BudgetsSection.CATEGORIES) },
+                headerContent = sectionSwitcherHeader,
+            )
+
+            BudgetsSection.CATEGORIES -> LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("budgets_list"),
+                contentPadding = contentPadding,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item(key = "budgets_header") {
+                    sectionSwitcherHeader()
+                }
+
+                items(state.categories, key = { it.id }) { category ->
+                    val spent = state.spentForCategoryThisMonth(category.id)
+                    BudgetLimitCard(
+                        category = category,
+                        spent = spent,
+                        isExpanded = expandedCategoryId == category.id,
+                        onToggleExpand = {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            expandedCategoryId = if (expandedCategoryId == category.id) null else category.id
+                        },
+                        onCommitLimit = { newLimit -> onLimitChange(category.id, newLimit) },
+                        onEditDetails = { onEditCategory(category) },
                     )
                 }
             }
         }
+    }
+}
 
-        items(state.categories, key = { it.id }) { category ->
-            val spent = state.spentForCategoryThisMonth(category.id)
-            BudgetLimitCard(
-                category = category,
-                spent = spent,
-                isExpanded = expandedCategoryId == category.id,
-                onToggleExpand = {
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    expandedCategoryId = if (expandedCategoryId == category.id) null else category.id
-                },
-                onCommitLimit = { newLimit -> onLimitChange(category.id, newLimit) },
-                onEditDetails = { onEditCategory(category) },
+@Composable
+private fun BudgetsSectionSegmentedPill(
+    activeSection: BudgetsSection,
+    onSelect: (BudgetsSection) -> Unit,
+) {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            BudgetsSectionPillButton(
+                label = stringResource(R.string.budgets_tab_overview),
+                selected = activeSection == BudgetsSection.OVERVIEW,
+                onClick = { onSelect(BudgetsSection.OVERVIEW) },
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("budgets_section_overview"),
+            )
+            BudgetsSectionPillButton(
+                label = stringResource(R.string.budgets_tab_categories),
+                selected = activeSection == BudgetsSection.CATEGORIES,
+                onClick = { onSelect(BudgetsSection.CATEGORIES) },
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("budgets_section_categories"),
+            )
+        }
+    }
+}
+
+@Composable
+private fun BudgetsSectionPillButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val container by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+        animationSpec = ExpressiveMotion.fastEffects(),
+        label = "BudgetsPillBg",
+    )
+    val content by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = ExpressiveMotion.fastEffects(),
+        label = "BudgetsPillFg",
+    )
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = container,
+        modifier = modifier.height(44.dp),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = content,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }

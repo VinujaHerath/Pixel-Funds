@@ -32,18 +32,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Animation
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.CloudDone
-import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.DeleteForever
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.NotificationsActive
@@ -51,6 +49,7 @@ import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Pin
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.SaveAlt
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Smartphone
 import androidx.compose.material.icons.rounded.Vibration
@@ -96,7 +95,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.credentials.CredentialManager
 import com.example.R
 import com.example.data.AppThemeMode
 import com.example.data.CadenceUiState
@@ -104,11 +102,14 @@ import com.example.data.CurrencyOption
 import com.example.data.LocalDay
 import com.example.data.UserPreferences
 import com.example.data.WorldCurrencyCatalog
-import com.example.ui.auth.onGoogleSignInClicked
+import com.example.data.local.ImportedCsvRow
+import com.example.data.local.ParsedImportPayload
+import com.example.data.local.PixelFundsBackupData
 import com.example.ui.components.rememberPixelHaptics
 import com.example.ui.theme.ExpressiveMotion
 import com.example.ui.theme.LocalFinancialColors
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -117,10 +118,6 @@ import kotlin.math.roundToInt
 fun SettingsOverlayScreen(
     state: CadenceUiState,
     preferences: UserPreferences,
-    isCloudSignedIn: Boolean,
-    displayName: String,
-    email: String,
-    credentialManager: CredentialManager,
     onDismiss: () -> Unit,
     onSelectResetDay: (Int) -> Unit,
     onSelectCurrency: (String) -> Unit,
@@ -132,13 +129,15 @@ fun SettingsOverlayScreen(
     onUpdateWarningThreshold: (Int) -> Unit,
     onToggleIncludeFixedBills: (Boolean) -> Unit,
     onToggleCompactCards: (Boolean) -> Unit,
+    onBuildFullBackupJson: suspend () -> Result<String>,
     onBuildCsv: () -> String,
+    onParseImportText: suspend (String) -> Result<ParsedImportPayload>,
+    onRestoreFullBackup: (PixelFundsBackupData) -> Unit,
+    onImportCsvTransactions: (List<ImportedCsvRow>, Boolean) -> Unit,
     onExportStatusMessage: (String) -> Unit,
     onClearSampleData: () -> Unit,
     onRestoreSampleData: () -> Unit,
     onClearAllTransactions: () -> Unit,
-    onSignInSuccess: () -> Unit,
-    onSignOut: () -> Unit,
 ) {
     BackHandler(onBack = onDismiss)
 
@@ -147,31 +146,105 @@ fun SettingsOverlayScreen(
     val scope = rememberCoroutineScope()
     val performHaptic = rememberPixelHaptics()
 
-    var isSigningIn by remember { mutableStateOf(false) }
-    var authError by remember { mutableStateOf<String?>(null) }
     var showResetDayDialog by remember { mutableStateOf(false) }
     var showCurrencyPicker by remember { mutableStateOf(false) }
     var showClearAllDialog by remember { mutableStateOf(false) }
+    var pendingImport by remember { mutableStateOf<ParsedImportPayload?>(null) }
+    var isProcessingFile by remember { mutableStateOf(false) }
     var sliderDraft by remember(preferences.warningThresholdPercent) {
         mutableFloatStateOf(preferences.warningThresholdPercent.toFloat())
+    }
+
+    val exportBackupJsonLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                isProcessingFile = true
+                val result = runCatching {
+                    val json = onBuildFullBackupJson().getOrThrow()
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri)?.use { stream ->
+                            stream.write(json.toByteArray(Charsets.UTF_8))
+                        } ?: error("Unable to open output stream")
+                    }
+                }
+                isProcessingFile = false
+                if (result.isSuccess) {
+                    onExportStatusMessage(context.getString(R.string.settings_backup_export_success))
+                } else {
+                    onExportStatusMessage(context.getString(R.string.settings_backup_export_error))
+                }
+            }
+        }
     }
 
     val exportCsvLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv"),
     ) { uri ->
         if (uri != null) {
-            val result = runCatching {
-                val csv = onBuildCsv()
-                context.contentResolver.openOutputStream(uri)?.use { stream ->
-                    stream.write(csv.toByteArray(Charsets.UTF_8))
-                } ?: error("Unable to open output stream")
-            }
-            if (result.isSuccess) {
-                onExportStatusMessage(context.getString(R.string.settings_export_success))
-            } else {
-                onExportStatusMessage(context.getString(R.string.settings_export_error))
+            scope.launch {
+                isProcessingFile = true
+                val result = runCatching {
+                    val csv = onBuildCsv()
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri)?.use { stream ->
+                            stream.write(csv.toByteArray(Charsets.UTF_8))
+                        } ?: error("Unable to open output stream")
+                    }
+                }
+                isProcessingFile = false
+                if (result.isSuccess) {
+                    onExportStatusMessage(context.getString(R.string.settings_export_success))
+                } else {
+                    onExportStatusMessage(context.getString(R.string.settings_export_error))
+                }
             }
         }
+    }
+
+    val importDataLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                isProcessingFile = true
+                val parsed = runCatching {
+                    val rawText = withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use {
+                            it.readText()
+                        } ?: error("Unable to read selected file")
+                    }
+                    onParseImportText(rawText).getOrThrow()
+                }
+                isProcessingFile = false
+                parsed.onSuccess { payload ->
+                    pendingImport = payload
+                }.onFailure { err ->
+                    onExportStatusMessage(
+                        err.localizedMessage ?: context.getString(R.string.settings_import_error)
+                    )
+                }
+            }
+        }
+    }
+
+    val launchFullBackupExport = {
+        performHaptic(HapticFeedbackType.TextHandleMove)
+        exportBackupJsonLauncher.launch("pixel_funds_backup_${state.today.formatIsoDate()}.json")
+    }
+
+    val launchImportPicker = {
+        performHaptic(HapticFeedbackType.TextHandleMove)
+        importDataLauncher.launch(
+            arrayOf(
+                "application/json",
+                "text/csv",
+                "text/comma-separated-values",
+                "text/plain",
+                "*/*",
+            )
+        )
     }
 
     Surface(
@@ -222,8 +295,7 @@ fun SettingsOverlayScreen(
 
                     Surface(
                         shape = CircleShape,
-                        color = if (isCloudSignedIn) finColors.healthyContainer
-                        else MaterialTheme.colorScheme.secondaryContainer,
+                        color = MaterialTheme.colorScheme.secondaryContainer,
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -231,18 +303,15 @@ fun SettingsOverlayScreen(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             Icon(
-                                imageVector = if (isCloudSignedIn) Icons.Rounded.CloudDone else Icons.Rounded.Smartphone,
+                                imageVector = Icons.Rounded.Smartphone,
                                 contentDescription = null,
-                                tint = if (isCloudSignedIn) finColors.onHealthyContainer
-                                else MaterialTheme.colorScheme.onSecondaryContainer,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
                                 modifier = Modifier.size(16.dp),
                             )
                             Text(
-                                text = if (isCloudSignedIn) stringResource(R.string.account_synced_badge)
-                                else stringResource(R.string.account_local_badge),
+                                text = stringResource(R.string.account_local_badge),
                                 style = MaterialTheme.typography.labelMedium,
-                                color = if (isCloudSignedIn) finColors.onHealthyContainer
-                                else MaterialTheme.colorScheme.onSecondaryContainer,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
                             )
                         }
                     }
@@ -253,150 +322,71 @@ fun SettingsOverlayScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 36.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    // 1. Account & Cloud Sync Hero Card
-                    item(key = "settings_account") {
-                        SettingsSectionTitle(stringResource(R.string.settings_section_account))
+                    // 1. Private Local Storage & Quick Backup/Restore Hero Card
+                    item(key = "settings_local_storage") {
+                        SettingsSectionTitle(stringResource(R.string.settings_section_local_storage))
                         Spacer(Modifier.height(8.dp))
-                        if (isCloudSignedIn) {
-                            Surface(
-                                shape = RoundedCornerShape(28.dp),
-                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                modifier = Modifier.fillMaxWidth(),
+                        Surface(
+                            shape = RoundedCornerShape(28.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(18.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
-                                Column(
-                                    modifier = Modifier.padding(18.dp),
-                                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                                Text(
+                                    text = stringResource(R.string.account_local_title),
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                                Text(
+                                    text = stringResource(R.string.account_local_subtitle),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(48.dp)
-                                                .clip(CircleShape)
-                                                .background(MaterialTheme.colorScheme.primaryContainer),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            Text(
-                                                text = displayName.firstOrNull()?.uppercaseChar()?.toString() ?: "P",
-                                                style = MaterialTheme.typography.titleLarge,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            )
-                                        }
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(displayName, style = MaterialTheme.typography.titleMedium)
-                                            if (email.isNotBlank()) {
-                                                Text(
-                                                    text = email,
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                )
-                                            }
-                                        }
-                                    }
-                                    OutlinedButton(
-                                        onClick = onSignOut,
-                                        enabled = !state.isMutating,
+                                    Button(
+                                        onClick = launchFullBackupExport,
+                                        enabled = !state.isMutating && !isProcessingFile,
                                         shape = CircleShape,
                                         modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(48.dp)
-                                            .testTag("sign_out_button"),
+                                            .weight(1f)
+                                            .height(50.dp)
+                                            .testTag("hero_export_backup_button"),
                                     ) {
-                                        Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = null)
-                                        Spacer(Modifier.width(8.dp))
+                                        Icon(
+                                            imageVector = Icons.Rounded.SaveAlt,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                        Spacer(Modifier.width(6.dp))
                                         Text(
-                                            text = stringResource(R.string.account_sign_out),
-                                            style = MaterialTheme.typography.titleSmall,
+                                            text = stringResource(R.string.settings_quick_export),
+                                            style = MaterialTheme.typography.labelLarge,
                                         )
                                     }
-                                }
-                            }
-                        } else {
-                            Surface(
-                                shape = RoundedCornerShape(28.dp),
-                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(18.dp),
-                                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.account_local_title),
-                                        style = MaterialTheme.typography.titleMedium,
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.account_local_subtitle),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                    authError?.let { errorText ->
-                                        Surface(
-                                            shape = RoundedCornerShape(16.dp),
-                                            color = MaterialTheme.colorScheme.errorContainer,
-                                            modifier = Modifier.fillMaxWidth(),
-                                        ) {
-                                            Text(
-                                                text = errorText,
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                            )
-                                        }
-                                    }
-                                    Button(
-                                        onClick = {
-                                            performHaptic(HapticFeedbackType.LongPress)
-                                            authError = null
-                                            isSigningIn = true
-                                            onGoogleSignInClicked(
-                                                context = context,
-                                                credentialManager = credentialManager,
-                                                onAuthSuccess = {
-                                                    isSigningIn = false
-                                                    onSignInSuccess()
-                                                },
-                                                onAuthError = { msg ->
-                                                    isSigningIn = false
-                                                    authError = msg
-                                                },
-                                                scope = scope,
-                                                onAuthCancelled = {
-                                                    isSigningIn = false
-                                                },
-                                            )
-                                        },
-                                        enabled = !isSigningIn && !state.isMutating,
+                                    OutlinedButton(
+                                        onClick = launchImportPicker,
+                                        enabled = !state.isMutating && !isProcessingFile,
                                         shape = CircleShape,
                                         modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(52.dp)
-                                            .testTag("google_sign_in_button"),
+                                            .weight(1f)
+                                            .height(50.dp)
+                                            .testTag("hero_import_backup_button"),
                                     ) {
-                                        if (isSigningIn) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(20.dp),
-                                                color = MaterialTheme.colorScheme.onPrimary,
-                                                strokeWidth = 2.dp,
-                                            )
-                                            Spacer(Modifier.width(10.dp))
-                                            Text(
-                                                text = stringResource(R.string.auth_signing_in),
-                                                style = MaterialTheme.typography.titleMedium,
-                                            )
-                                        } else {
-                                            Icon(Icons.Rounded.CloudUpload, contentDescription = null)
-                                            Spacer(Modifier.width(8.dp))
-                                            Text(
-                                                text = stringResource(R.string.auth_sign_in_google),
-                                                style = MaterialTheme.typography.titleMedium,
-                                            )
-                                        }
+                                        Icon(
+                                            imageVector = Icons.Rounded.FileUpload,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            text = stringResource(R.string.settings_quick_import),
+                                            style = MaterialTheme.typography.labelLarge,
+                                        )
                                     }
                                 }
                             }
@@ -674,7 +664,7 @@ fun SettingsOverlayScreen(
                         }
                     }
 
-                    // 4. Data & Export Tools
+                    // 4. Backup, Export & Import Tools
                     item(key = "settings_data") {
                         SettingsSectionTitle(stringResource(R.string.settings_section_data))
                         Spacer(Modifier.height(8.dp))
@@ -685,6 +675,34 @@ fun SettingsOverlayScreen(
                         ) {
                             Column(modifier = Modifier.fillMaxWidth()) {
                                 SettingsActionRow(
+                                    icon = Icons.Rounded.SaveAlt,
+                                    title = stringResource(R.string.settings_export_backup_title),
+                                    subtitle = stringResource(R.string.settings_export_backup_subtitle),
+                                    onClick = {
+                                        if (!state.isMutating && !isProcessingFile) {
+                                            launchFullBackupExport()
+                                        }
+                                    },
+                                    modifier = Modifier.testTag("settings_export_backup_row"),
+                                )
+
+                                SettingsDivider()
+
+                                SettingsActionRow(
+                                    icon = Icons.Rounded.FileUpload,
+                                    title = stringResource(R.string.settings_import_data_title),
+                                    subtitle = stringResource(R.string.settings_import_data_subtitle),
+                                    onClick = {
+                                        if (!state.isMutating && !isProcessingFile) {
+                                            launchImportPicker()
+                                        }
+                                    },
+                                    modifier = Modifier.testTag("settings_import_data_row"),
+                                )
+
+                                SettingsDivider()
+
+                                SettingsActionRow(
                                     icon = Icons.Rounded.Download,
                                     title = stringResource(R.string.settings_export_csv_title),
                                     subtitle = stringResource(
@@ -692,8 +710,10 @@ fun SettingsOverlayScreen(
                                         state.transactions.size,
                                     ),
                                     onClick = {
-                                        performHaptic(HapticFeedbackType.TextHandleMove)
-                                        exportCsvLauncher.launch("pixel_funds_${state.today.formatIsoDate()}.csv")
+                                        if (!state.isMutating && !isProcessingFile) {
+                                            performHaptic(HapticFeedbackType.TextHandleMove)
+                                            exportCsvLauncher.launch("pixel_funds_${state.today.formatIsoDate()}.csv")
+                                        }
                                     },
                                     modifier = Modifier.testTag("settings_export_csv_row"),
                                 )
@@ -707,7 +727,7 @@ fun SettingsOverlayScreen(
                                     subtitle = if (state.hasSampleData) stringResource(R.string.account_clear_sample_subtitle)
                                     else stringResource(R.string.account_load_sample_subtitle),
                                     onClick = {
-                                        if (!state.isMutating && !isSigningIn) {
+                                        if (!state.isMutating && !isProcessingFile) {
                                             performHaptic(HapticFeedbackType.LongPress)
                                             if (state.hasSampleData) onClearSampleData() else onRestoreSampleData()
                                         }
@@ -841,6 +861,131 @@ fun SettingsOverlayScreen(
                 }
             },
         )
+    }
+
+    pendingImport?.let { payload ->
+        when (payload) {
+            is ParsedImportPayload.FullBackup -> {
+                val backup = payload.backup
+                AlertDialog(
+                    onDismissRequest = { pendingImport = null },
+                    shape = RoundedCornerShape(28.dp),
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Rounded.FileUpload,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    },
+                    title = { Text(stringResource(R.string.settings_import_backup_confirm_title)) },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = stringResource(
+                                    R.string.settings_import_backup_summary,
+                                    backup.categories.size,
+                                    backup.transactions.size,
+                                    backup.recurringItems.size,
+                                    backup.monthlyBudgetLimits.size,
+                                ),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_import_backup_warning),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { pendingImport = null }) {
+                            Text(stringResource(R.string.entry_cancel))
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                pendingImport = null
+                                performHaptic(HapticFeedbackType.LongPress)
+                                onRestoreFullBackup(backup)
+                            },
+                            shape = CircleShape,
+                            modifier = Modifier.testTag("confirm_import_backup_button"),
+                        ) {
+                            Text(stringResource(R.string.settings_import_backup_confirm_action))
+                        }
+                    },
+                )
+            }
+
+            is ParsedImportPayload.CsvTransactions -> {
+                AlertDialog(
+                    onDismissRequest = { pendingImport = null },
+                    shape = RoundedCornerShape(28.dp),
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Rounded.FileUpload,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    },
+                    title = { Text(stringResource(R.string.settings_import_csv_confirm_title)) },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = stringResource(
+                                    R.string.settings_import_csv_summary,
+                                    payload.rows.size,
+                                ),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            if (payload.skippedRows > 0) {
+                                Text(
+                                    text = stringResource(
+                                        R.string.settings_import_csv_skipped,
+                                        payload.skippedRows,
+                                    ),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Text(
+                                text = stringResource(R.string.settings_import_csv_mode_hint),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            onClick = {
+                                pendingImport = null
+                                performHaptic(HapticFeedbackType.LongPress)
+                                onImportCsvTransactions(payload.rows, true)
+                            },
+                            modifier = Modifier.testTag("confirm_import_csv_replace_button"),
+                        ) {
+                            Text(stringResource(R.string.settings_import_csv_replace))
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                pendingImport = null
+                                performHaptic(HapticFeedbackType.LongPress)
+                                onImportCsvTransactions(payload.rows, false)
+                            },
+                            shape = CircleShape,
+                            modifier = Modifier.testTag("confirm_import_csv_merge_button"),
+                        ) {
+                            Text(stringResource(R.string.settings_import_csv_merge))
+                        }
+                    },
+                )
+            }
+        }
     }
 }
 

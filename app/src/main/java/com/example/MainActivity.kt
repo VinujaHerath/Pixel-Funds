@@ -13,14 +13,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
-import androidx.credentials.CredentialManager
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
@@ -31,22 +26,14 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.data.AppPreferencesRepository
 import com.example.data.AppThemeMode
-import com.example.data.CadenceRepository
 import com.example.data.UserPreferences
 import com.example.data.local.LocalBudgetRepository
+import com.example.data.local.MonthlyBudgetOverviewRepository
+import com.example.data.local.PixelFundsDatabase
 import com.example.ui.CadenceApp
 import com.example.ui.CadenceViewModel
-import com.example.ui.auth.attemptAutoSignIn
+import com.example.ui.MonthlyBudgetOverviewViewModel
 import com.example.ui.theme.CadenceTheme
-import com.google.firebase.Firebase
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.FirebaseUser
-import com.google.firebase.auth.auth
-import com.google.firebase.firestore.FirebaseFirestore
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.flowOf
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -123,107 +110,81 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
-    val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
-        trySend(firebaseAuth.currentUser)
-    }
-    addAuthStateListener(listener)
-    awaitClose { removeAuthStateListener(listener) }
-}
-
 @Composable
 private fun PixelFundsRootNavigation(
     preferencesRepository: AppPreferencesRepository,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val credentialManager = remember(context) { CredentialManager.create(context) }
-    val auth = remember { runCatching { Firebase.auth }.getOrNull() }
-    val authStateFlow = remember(auth) { auth?.authStateFlow() ?: flowOf(null) }
-    val currentUser by authStateFlow.collectAsStateWithLifecycle(initialValue = auth?.currentUser)
 
-    // Non-blocking silent check for previously authorized Google accounts;
-    // users remain immediately in local on-device mode if not signed in.
-    LaunchedEffect(auth) {
-        if (auth != null) {
-            attemptAutoSignIn(
-                context = context,
-                credentialManager = credentialManager,
-                onAuthSuccess = {},
-                onUnauthenticated = {},
-                scope = scope,
-            )
+    val viewModel: CadenceViewModel = viewModel(
+        key = "local_device_budget",
+        factory = viewModelFactory {
+            initializer {
+                val app = checkNotNull(this[APPLICATION_KEY]) {
+                    "APPLICATION_KEY missing from CreationExtras"
+                }
+                CadenceViewModel(
+                    repository = LocalBudgetRepository(app),
+                    preferencesRepository = preferencesRepository,
+                )
+            }
+        },
+    )
+
+    val overviewViewModel: MonthlyBudgetOverviewViewModel = viewModel(
+        key = "local_monthly_overview",
+        factory = viewModelFactory {
+            initializer {
+                val app = checkNotNull(this[APPLICATION_KEY]) {
+                    "APPLICATION_KEY missing from CreationExtras"
+                }
+                val overviewDao = PixelFundsDatabase.getInstance(app).monthlyBudgetOverviewDao()
+                MonthlyBudgetOverviewViewModel(
+                    repository = MonthlyBudgetOverviewRepository(overviewDao),
+                    preferencesRepository = preferencesRepository,
+                )
+            }
+        },
+    )
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(viewModel, overviewViewModel, lifecycleOwner, context) {
+        viewModel.syncDeviceDate()
+        overviewViewModel.refreshDate()
+        val lifecycleObserver = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.syncDeviceDate()
+                overviewViewModel.refreshDate()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(lifecycleObserver)
+
+        val dateChangeReceiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                viewModel.syncDeviceDate()
+                overviewViewModel.refreshDate()
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_DATE_CHANGED)
+            addAction(Intent.ACTION_TIME_CHANGED)
+            addAction(Intent.ACTION_TIMEZONE_CHANGED)
+        }
+        ContextCompat.registerReceiver(
+            context,
+            dateChangeReceiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
+            runCatching { context.unregisterReceiver(dateChangeReceiver) }
         }
     }
 
-    val user = currentUser
-    val sessionKey = if (user != null) "cloud_${user.uid}" else "local_device"
-
-    key(sessionKey) {
-        val viewModel: CadenceViewModel = viewModel(
-            key = sessionKey,
-            factory = viewModelFactory {
-                initializer {
-                    val app = checkNotNull(this[APPLICATION_KEY]) {
-                        "APPLICATION_KEY missing from CreationExtras"
-                    }
-                    val localRepository = LocalBudgetRepository(app)
-                    val repository = if (user != null) {
-                        runCatching {
-                            val databaseId = app.getString(R.string.firestore_database_id)
-                            val db = FirebaseFirestore.getInstance(databaseId)
-                            CadenceRepository(
-                                db = db,
-                                userId = user.uid,
-                                localMigrationSource = localRepository,
-                            )
-                        }.getOrElse { localRepository }
-                    } else {
-                        localRepository
-                    }
-                    CadenceViewModel(
-                        repository = repository,
-                        preferencesRepository = preferencesRepository,
-                    )
-                }
-            },
-        )
-        val lifecycleOwner = LocalLifecycleOwner.current
-        DisposableEffect(viewModel, lifecycleOwner, context) {
-            viewModel.syncDeviceDate()
-            val lifecycleObserver = LifecycleEventObserver { _, event ->
-                if (event == Lifecycle.Event.ON_RESUME) {
-                    viewModel.syncDeviceDate()
-                }
-            }
-            lifecycleOwner.lifecycle.addObserver(lifecycleObserver)
-
-            val dateChangeReceiver = object : BroadcastReceiver() {
-                override fun onReceive(ctx: Context?, intent: Intent?) {
-                    viewModel.syncDeviceDate()
-                }
-            }
-            val filter = IntentFilter().apply {
-                addAction(Intent.ACTION_DATE_CHANGED)
-                addAction(Intent.ACTION_TIME_CHANGED)
-                addAction(Intent.ACTION_TIMEZONE_CHANGED)
-            }
-            ContextCompat.registerReceiver(
-                context,
-                dateChangeReceiver,
-                filter,
-                ContextCompat.RECEIVER_NOT_EXPORTED,
-            )
-
-            onDispose {
-                lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
-                runCatching { context.unregisterReceiver(dateChangeReceiver) }
-            }
-        }
-
-        CadenceApp(
-            viewModel = viewModel,
-            signedInUser = user,
-        )
-    }
+    CadenceApp(
+        viewModel = viewModel,
+        overviewViewModel = overviewViewModel,
+    )
 }

@@ -59,7 +59,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,14 +69,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.credentials.CredentialManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
 import com.example.data.BudgetCategory
 import com.example.data.CadenceTab
 import com.example.data.Transaction
 import com.example.data.WorkspaceLoadState
-import com.example.ui.auth.signOut
 import com.example.ui.components.FloatingPillToolbar
 import com.example.ui.components.LocalReduceMotion
 import com.example.ui.components.WavyProgressIndicator
@@ -85,6 +82,7 @@ import com.example.ui.components.formatCurrency
 import com.example.ui.components.rememberPixelHaptics
 import com.example.ui.screens.ActivitySection
 import com.example.ui.screens.BudgetsScreen
+import com.example.ui.screens.BudgetsSection
 import com.example.ui.screens.CategoryEditorBottomSheet
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.ExpenseEntryBottomSheet
@@ -94,31 +92,23 @@ import com.example.ui.screens.SettingsOverlayScreen
 import com.example.ui.screens.TransactionsScreen
 import com.example.ui.theme.ExpressiveMotion
 import com.example.ui.theme.budgetStatusPalette
-import com.google.firebase.auth.FirebaseUser
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun CadenceApp(
     viewModel: CadenceViewModel,
-    signedInUser: FirebaseUser?,
+    overviewViewModel: MonthlyBudgetOverviewViewModel,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val overviewState by overviewViewModel.uiState.collectAsStateWithLifecycle()
     val userPreferences by viewModel.userPreferences.collectAsStateWithLifecycle()
     var activeTab by remember { mutableStateOf(CadenceTab.Home) }
+    var budgetsSection by remember { mutableStateOf(BudgetsSection.OVERVIEW) }
     var activitySection by remember { mutableStateOf(ActivitySection.TRANSACTIONS) }
     val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val performHaptic = rememberPixelHaptics()
     val reduceMotion = LocalReduceMotion.current
-    val credentialManager = remember(context) { CredentialManager.create(context) }
-
-    val isCloudSignedIn = signedInUser != null
-    val userDisplayName = signedInUser?.displayName?.takeIf { it.isNotBlank() }
-        ?: stringResource(R.string.account_default_name)
-    val userEmail = signedInUser?.email ?: ""
-    val userInitial = signedInUser?.displayName?.firstOrNull()?.uppercaseChar()?.toString()
-        ?: signedInUser?.email?.firstOrNull()?.uppercaseChar()?.toString()
 
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
@@ -297,8 +287,6 @@ fun CadenceApp(
                                     when (tab) {
                                         CadenceTab.Home -> DashboardScreen(
                                             state = uiState,
-                                            isCloudSignedIn = isCloudSignedIn,
-                                            userInitial = userInitial,
                                             contentPadding = contentPadding,
                                             sharedTransitionScope = this@SharedTransitionLayout,
                                             animatedVisibilityScope = this@AnimatedContent,
@@ -318,10 +306,19 @@ fun CadenceApp(
 
                                         CadenceTab.Budgets -> BudgetsScreen(
                                             state = uiState,
+                                            overviewState = overviewState,
+                                            activeSection = budgetsSection,
+                                            onSelectSection = { budgetsSection = it },
                                             contentPadding = contentPadding,
                                             onLimitChange = viewModel::updateCategoryLimit,
                                             onNewCategory = viewModel::openNewCategorySheet,
                                             onEditCategory = viewModel::openEditCategorySheet,
+                                            onPreviousMonth = overviewViewModel::previousMonth,
+                                            onNextMonth = overviewViewModel::nextMonth,
+                                            onJumpToCurrentMonth = overviewViewModel::jumpToCurrentMonth,
+                                            onSetMonthlyLimit = overviewViewModel::setMonthlyBudgetLimit,
+                                            onResetMonthlyLimitToCategories = overviewViewModel::resetToCategoryLimitsSum,
+                                            onLogExpense = viewModel::openNewExpenseSheet,
                                         )
 
                                         CadenceTab.Activity -> TransactionsScreen(
@@ -405,10 +402,6 @@ fun CadenceApp(
                 SettingsOverlayScreen(
                     state = uiState,
                     preferences = userPreferences,
-                    isCloudSignedIn = isCloudSignedIn,
-                    displayName = userDisplayName,
-                    email = userEmail,
-                    credentialManager = credentialManager,
                     onDismiss = viewModel::dismissAccountSheet,
                     onSelectResetDay = viewModel::updateBudgetResetDay,
                     onSelectCurrency = viewModel::updateCurrencyCode,
@@ -420,16 +413,15 @@ fun CadenceApp(
                     onUpdateWarningThreshold = viewModel::updateWarningThresholdPercent,
                     onToggleIncludeFixedBills = viewModel::updateIncludeFixedBillsInSafeDaily,
                     onToggleCompactCards = viewModel::updateCompactCards,
+                    onBuildFullBackupJson = viewModel::buildFullBackupJson,
                     onBuildCsv = viewModel::buildTransactionsCsv,
+                    onParseImportText = viewModel::parseImportText,
+                    onRestoreFullBackup = viewModel::restoreFullBackup,
+                    onImportCsvTransactions = viewModel::importCsvTransactions,
                     onExportStatusMessage = viewModel::showToastMessage,
                     onClearSampleData = viewModel::clearSampleData,
                     onRestoreSampleData = viewModel::restoreSampleData,
                     onClearAllTransactions = viewModel::clearAllTransactions,
-                    onSignInSuccess = { viewModel.dismissAccountSheet() },
-                    onSignOut = {
-                        viewModel.dismissAccountSheet()
-                        signOut(credentialManager = credentialManager, scope = scope)
-                    },
                 )
             }
         }
